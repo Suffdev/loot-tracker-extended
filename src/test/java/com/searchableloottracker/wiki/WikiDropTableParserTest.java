@@ -1,0 +1,129 @@
+package com.searchableloottracker.wiki;
+
+import okhttp3.HttpUrl;
+import okhttp3.OkHttpClient;
+import org.junit.Test;
+
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Collections;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+
+public class WikiDropTableParserTest
+{
+	@Test
+	public void parsesRatesAcrossWikiDropTables()
+	{
+		String html = "<html><body>"
+			+ "<table class='wikitable'><tr><td>Ignored item</td><td>1/2</td></tr></table>"
+			+ "<div class='mw-heading'><h3>Runes and ammunition</h3></div>"
+			+ "<table class='wikitable item-drops'><tr><th colspan='2'>Item</th>"
+			+ "<th>Quantity</th><th>Rarity</th><th>Price</th></tr>"
+			+ "<tr><td class='inventory-image'></td><td class='item-col'>Law rune</td><td>20</td>"
+			+ "<td><span data-drop-fraction='5/128' data-drop-oneover='1/25.6'>5/128</span></td><td>0</td></tr>"
+			+ "<tr><td></td><td class='item-col'>Coins</td><td>10</td><td>1/10</td><td>0</td></tr>"
+			+ "<tr><td></td><td class='item-col'>Coins</td><td>20</td><td>1/20</td><td>0</td></tr>"
+			+ "<tr><td></td><td class='item-col'>Coins</td><td>30</td><td>1/30</td><td>0</td></tr></table>"
+			+ "<div class='mw-heading'><h3>Rare and Gem drop table</h3></div>"
+			+ "<p>There is a chance of rolling this table.</p>"
+			+ "<table class='item-drops'><tr><th colspan='2'>Item</th>"
+			+ "<th>Quantity</th><th>Rarity</th><th>Price</th></tr>"
+			+ "<tr><td></td><td class='item-col'>Law rune</td><td>45</td>"
+			+ "<td><span data-drop-fraction='1/2,730.67' data-drop-oneover='1/2,731'>"
+			+ "1/2,730.67</span></td><td>0</td></tr></table>"
+			+ "</body></html>";
+
+		WikiDropTable table = WikiDropTableParser.parse(html);
+
+		assertFalse(table.isEmpty());
+		assertEquals(Arrays.asList(
+			"1/25.6 (x20)",
+			"1/2,730.67 (x45) (Rare/Gem Table)"), table.getTooltipLines(" law RUNE "));
+		assertEquals(Collections.singletonList("Multiple rates - right-click to open Wiki"),
+			table.getTooltipLines("Coins"));
+		assertEquals(Collections.emptyList(), table.getTooltipLines("Ignored item"));
+	}
+
+	@Test
+	public void oneRateIncludesTheWikiQuantity()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+				+ "<tr><td>Dragon dagger</td><td>4–6</td><td>1/32</td></tr></table>");
+
+		assertEquals(Collections.singletonList("1/32 (x4-6)"), table.getTooltipLines("Dragon dagger"));
+	}
+
+	@Test
+	public void parsesDropTableFromResponseStream() throws Exception
+	{
+		String html = "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>Coins</td><td>10</td><td>1/2</td></tr></table>";
+
+		WikiDropTable table = WikiDropTableParser.parse(
+			new ByteArrayInputStream(html.getBytes(StandardCharsets.UTF_8)));
+
+		assertEquals(Collections.singletonList("1/2 (x10)"), table.getTooltipLines("Coins"));
+	}
+
+	@Test
+	public void scrollBoxesShareClueScrollRatesAndIgnoreMembersMarker()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<table class='item-drops'><tr><th colspan='2'>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+				+ "<tr><td></td><td class='item-col'><a href='/w/Clue_scroll_(medium)'>"
+				+ "Clue scroll (medium)</a><sub>(m)</sub></td><td>1</td><td>"
+				+ "<span data-drop-fraction='1/128' data-drop-oneover='1/128'>1/128</span>; "
+				+ "<span data-drop-fraction='1/106' data-drop-oneover='1/106'>1/106</span>"
+				+ "</td></tr></table>");
+
+		assertEquals(Collections.singletonList("1/128; 1/106 (x1)"),
+			table.getTooltipLines("Clue scroll (medium)"));
+		assertEquals(table.getTooltipLines("Clue scroll (medium)"),
+			table.getTooltipLines("Scroll box (medium)"));
+	}
+
+	@Test
+	public void twoNormalRatesAreReportedAsMultiple()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+				+ "<tr><td>Lava rune</td><td>15</td><td>1/32</td></tr>"
+				+ "<tr><td>Lava rune</td><td>30</td><td>1/32</td></tr></table>");
+
+		assertEquals(Collections.singletonList("Multiple rates - right-click to open Wiki"),
+			table.getTooltipLines("Lava rune"));
+	}
+
+	@Test
+	public void buildsNameOnlyAndNpcIdLookupUrls()
+	{
+		HttpUrl nameOnly = WikiDropRateService.buildUrl("Gnome woman", null);
+		assertEquals("npc", nameOnly.queryParameter("type"));
+		assertEquals("Gnome woman", nameOnly.queryParameter("name"));
+		assertNull(nameOnly.queryParameter("id"));
+
+		HttpUrl withId = WikiDropRateService.buildUrl("Gnome", 66);
+		assertEquals("66", withId.queryParameter("id"));
+		assertEquals("Gnome", withId.queryParameter("name"));
+
+		WikiDropRateService service = new WikiDropRateService(new OkHttpClient());
+		service.setEnabled(true);
+		HttpUrl clueRewards = HttpUrl.parse(service.getDropTableUrl(
+			"EVENT", "Clue Scroll (Medium)", null));
+		assertEquals("Reward casket (medium)", clueRewards.queryParameter("name"));
+		assertEquals("Rewards", clueRewards.fragment());
+		assertNull(clueRewards.queryParameter("id"));
+
+		HttpUrl grotesqueGuardians = HttpUrl.parse(service.getDropTableUrl("NPC", "Dusk", 7888));
+		assertEquals("Grotesque Guardians", grotesqueGuardians.queryParameter("name"));
+		assertEquals("Drops", grotesqueGuardians.fragment());
+		assertNull(grotesqueGuardians.queryParameter("id"));
+		assertEquals("Grotesque Guardians", WikiSourceAliases.resolve(" dusk "));
+		assertEquals("Vorkath", WikiSourceAliases.resolve("Vorkath"));
+	}
+}
