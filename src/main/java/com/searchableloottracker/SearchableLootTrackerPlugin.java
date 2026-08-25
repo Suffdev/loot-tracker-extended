@@ -34,8 +34,7 @@ import net.runelite.client.ui.NavigationButton;
 @PluginDescriptor(
 	name = "Loot Tracker Extended",
 	description = "Search, filter, retain, and explore RuneLite loot with independent history",
-	tags = {"loot", "drops", "search", "npc", "tracker", "history"},
-	enabledByDefault = false
+	tags = {"loot", "drops", "search", "npc", "tracker", "history"}
 )
 public class SearchableLootTrackerPlugin extends Plugin
 {
