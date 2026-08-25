@@ -4,7 +4,7 @@ Loot Tracker Extended is a RuneLite side-panel plugin that builds on the functio
 
 RuneLite's built-in **Loot Tracker must be enabled** because it produces the loot events that Extended consumes. Loot Tracker Extended then stores and manages its own copy of that data.
 
-**Loot Tracker Extended operates independently of Loot Tracker's saved history.** It performs a one-time import for each RuneScape profile, then tracks new loot in its own separate file. Resetting or changing Extended history **never** modifies the built-in Loot Tracker's records, and resetting Loot Tracker does not reset Extended's.
+**Loot Tracker Extended operates independently of Loot Tracker's saved history.** It performs a one-time import for each RuneScape profile, then tracks new loot in its own separate records. Resetting or changing Extended history **never** modifies the built-in Loot Tracker's records, and resetting Loot Tracker does not reset Extended's.
 
 ## Functionality
 
