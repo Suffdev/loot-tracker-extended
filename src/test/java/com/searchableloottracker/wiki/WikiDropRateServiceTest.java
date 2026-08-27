@@ -18,7 +18,6 @@ import org.junit.After;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
 public class WikiDropRateServiceTest
@@ -173,11 +172,12 @@ public class WikiDropRateServiceTest
 	}
 
 	@Test
-	public void doesNotSetACustomUserAgent() throws Exception
+	public void identifiesWikiRequestsWithThePluginUserAgent() throws Exception
 	{
 		WikiDropRateService service = service(chain ->
 		{
-			assertNull(chain.request().header("User-Agent"));
+			assertEquals("Loot Tracker Extended (https://github.com/Suffdev/loot-tracker-extended)",
+				chain.request().header("User-Agent"));
 			return response(chain, 200, DROP_TABLE);
 		});
 
