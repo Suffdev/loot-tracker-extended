@@ -10,8 +10,6 @@ import org.junit.Test;
 
 public class SearchableLootTrackerConfigTest
 {
-	private static final String NETWORK_WARNING =
-		"This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers";
 	private static final String REIMPORT_WARNING =
 		"This deletes all Loot Tracker Extended history before copying the currently saved Loot Tracker history. RuneLite Loot Tracker history is not changed.";
 
@@ -25,14 +23,14 @@ public class SearchableLootTrackerConfigTest
 	}
 
 	@Test
-	public void wikiFetchingIsOptInAndCarriesTheRequiredWarning() throws Exception
+	public void wikiFetchingIsOptInWithoutAWarning() throws Exception
 	{
 		SearchableLootTrackerConfig defaults = new SearchableLootTrackerConfig() { };
 		Method method = SearchableLootTrackerConfig.class.getMethod("wikiDropRates");
 		ConfigItem item = method.getAnnotation(ConfigItem.class);
 
 		assertFalse(defaults.wikiDropRates());
-		assertEquals(NETWORK_WARNING, item.warning());
+		assertEquals("", item.warning());
 	}
 
 	@Test

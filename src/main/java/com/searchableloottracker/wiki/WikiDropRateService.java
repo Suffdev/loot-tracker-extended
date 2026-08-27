@@ -37,6 +37,8 @@ import okhttp3.ResponseBody;
 public final class WikiDropRateService
 {
 	private static final String LOOKUP_URL = "https://oldschool.runescape.wiki/w/Special:Lookup";
+	private static final String USER_AGENT =
+		"Loot Tracker Extended (https://github.com/Suffdev/loot-tracker-extended)";
 	private static final int MAX_CONCURRENT_REQUESTS = 2;
 	private static final int MAX_CACHE_ENTRIES = 256;
 	private static final int MAX_DISK_CACHE_ENTRIES = 1024;
@@ -307,6 +309,7 @@ public final class WikiDropRateService
 	{
 		Request request = new Request.Builder()
 			.url(buildUrl(lookup.sourceName, npcId))
+			.header("User-Agent", USER_AGENT)
 			.build();
 		Call requestCall = httpClient.newCall(request);
 		activeCalls.add(requestCall);

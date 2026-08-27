@@ -92,7 +92,6 @@ public interface SearchableLootTrackerConfig extends Config
 		keyName = WIKI_DROP_RATES_KEY,
 		name = "Wiki drop rates",
 		description = "Fetch official rates for NPC, pickpocket, and event sources. Requests send the source name and, for NPCs when known, numeric NPC ID.",
-		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
 		position = 0,
 		section = wikiSection
 	)
