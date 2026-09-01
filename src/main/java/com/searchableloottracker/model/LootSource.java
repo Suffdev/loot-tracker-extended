@@ -7,6 +7,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.TreeSet;
 import net.runelite.client.plugins.loottracker.LootTrackerPriceType;
 
 /**
@@ -20,7 +22,7 @@ public final class LootSource
 	private final String normalizedName;
 	private final String type;
 	private final LootSourceId id;
-	private final Integer npcId;
+	private final Set<Integer> npcIds;
 	private final int count;
 	private final Instant lastReceived;
 	private final List<LootItem> itemsByGe;
@@ -30,22 +32,29 @@ public final class LootSource
 
 	public LootSource(String name, String type, int count, List<LootItem> items)
 	{
-		this(name, type, count, Instant.EPOCH, items, null);
+		this(name, type, count, Instant.EPOCH, items, Collections.emptySet());
 	}
 
 	public LootSource(String name, String type, int count, Instant lastReceived, List<LootItem> items)
 	{
-		this(name, type, count, lastReceived, items, null);
+		this(name, type, count, lastReceived, items, Collections.emptySet());
 	}
 
 	public LootSource(String name, String type, int count, Instant lastReceived, List<LootItem> items,
 		Integer npcId)
 	{
+		this(name, type, count, lastReceived, items,
+			npcId == null ? Collections.emptySet() : Collections.singleton(npcId));
+	}
+
+	public LootSource(String name, String type, int count, Instant lastReceived, List<LootItem> items,
+		Set<Integer> npcIds)
+	{
 		this.name = Objects.requireNonNull(name);
 		this.normalizedName = name.trim().toLowerCase(Locale.ENGLISH);
 		this.type = Objects.requireNonNull(type);
 		this.id = new LootSourceId(type, name);
-		this.npcId = npcId;
+		this.npcIds = Collections.unmodifiableSet(new TreeSet<>(npcIds));
 		this.count = count;
 		this.lastReceived = Objects.requireNonNull(lastReceived);
 		List<LootItem> geSorted = new ArrayList<>(items);
@@ -84,7 +93,16 @@ public final class LootSource
 
 	public Integer getNpcId()
 	{
-		return npcId;
+		return npcIds.size() == 1 ? npcIds.iterator().next() : null;
+	}
+
+	/**
+	 * Returns every concrete NPC variant observed for this name-grouped source. An empty set means
+	 * that the record predates variant tracking or was imported from core Loot Tracker history.
+	 */
+	public Set<Integer> getNpcIds()
+	{
+		return npcIds;
 	}
 
 	public int getCount()

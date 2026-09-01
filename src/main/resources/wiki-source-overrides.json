@@ -1,0 +1,117 @@
+[
+  {
+    "sourceType": "NPC",
+    "sourceName": "Dusk",
+    "pageTitle": "Grotesque Guardians",
+    "section": "Drops",
+    "retainNpcId": false
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Black dragon",
+    "npcIds": [7861, 7862, 7863],
+    "pageTitle": "Black dragon",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Ankou",
+    "npcIds": [7864],
+    "pageTitle": "Ankou",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Lesser demon",
+    "npcIds": [7865, 7866, 7867],
+    "pageTitle": "Lesser demon",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Green dragon",
+    "npcIds": [7868, 7869, 7870],
+    "pageTitle": "Green dragon",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Greater demon",
+    "npcIds": [7871, 7872, 7873],
+    "pageTitle": "Greater demon",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Black demon",
+    "npcIds": [7874, 7875, 7876],
+    "pageTitle": "Black demon",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Hellhound",
+    "npcIds": [7877],
+    "pageTitle": "Hellhound",
+    "section": "Level 136 drops",
+    "retainNpcId": true,
+    "tableContext": "Level 136"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Ice giant",
+    "npcIds": [7878, 7879, 7880],
+    "pageTitle": "Ice giant",
+    "section": "Wilderness Slayer Cave drops",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Dust devil",
+    "npcIds": [11238],
+    "pageTitle": "Dust devil",
+    "section": "Wilderness Slayer Cave",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Abyssal demon",
+    "npcIds": [11239],
+    "pageTitle": "Abyssal demon",
+    "section": "Wilderness Slayer Cave",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Greater Nechryael",
+    "npcIds": [11240],
+    "pageTitle": "Greater Nechryael",
+    "section": "Wilderness Slayer Cave",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Jelly",
+    "npcIds": [11241, 11242, 11243, 11244, 11245],
+    "pageTitle": "Jelly",
+    "section": "Wilderness Slayer Cave",
+    "retainNpcId": true,
+    "tableContext": "Wilderness Slayer Cave"
+  }
+]

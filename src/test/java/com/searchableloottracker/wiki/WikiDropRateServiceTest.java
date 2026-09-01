@@ -6,6 +6,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import okhttp3.Interceptor;
 import okhttp3.MediaType;
@@ -56,6 +58,22 @@ public class WikiDropRateServiceTest
 		service.lookup("NPC", "Gnome", null).get(5, TimeUnit.SECONDS);
 
 		assertEquals(requestedUrls.toString(), 3, requests.get());
+	}
+
+	@Test
+	public void coalescesNpcIdsThatResolveToTheSameVariantContext() throws Exception
+	{
+		AtomicInteger requests = new AtomicInteger();
+		WikiDropRateService service = service(chain ->
+		{
+			requests.incrementAndGet();
+			return response(chain, 200, DROP_TABLE);
+		});
+
+		service.lookupVariants("NPC", "Greater demon",
+			new LinkedHashSet<>(Arrays.asList(7871, 7872, 7873))).get(5, TimeUnit.SECONDS);
+
+		assertEquals(1, requests.get());
 	}
 
 	@Test

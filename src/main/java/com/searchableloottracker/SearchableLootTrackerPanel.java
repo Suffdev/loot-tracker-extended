@@ -1142,7 +1142,8 @@ final class SearchableLootTrackerPanel extends PluginPanel
 		JPopupMenu wikiMenu = new JPopupMenu();
 		JMenuItem openWiki = new JMenuItem("Open " + source.getName() + " drops on Wiki");
 		openWiki.addActionListener(event -> LinkBrowser.browse(
-			wikiDropRateService.getDropTableUrl(source.getType(), source.getName(), source.getNpcId())));
+			wikiDropRateService.getDropTableUrlForVariants(
+				source.getType(), source.getName(), source.getNpcIds())));
 		wikiMenu.add(openWiki);
 		return wikiMenu;
 	}
@@ -1172,7 +1173,7 @@ final class SearchableLootTrackerPanel extends PluginPanel
 				// state are ignored rather than restoring stale tooltip content.
 				long requestGeneration = wikiTooltipGeneration;
 				imageLabel.setToolTipText(buildTooltip(item, Collections.singletonList("Loading...")));
-				wikiDropRateService.lookup(source.getType(), source.getName(), source.getNpcId())
+				wikiDropRateService.lookupVariants(source.getType(), source.getName(), source.getNpcIds())
 					.whenComplete((table, error) -> SwingUtilities.invokeLater(() ->
 					{
 						if (requestGeneration != wikiTooltipGeneration)

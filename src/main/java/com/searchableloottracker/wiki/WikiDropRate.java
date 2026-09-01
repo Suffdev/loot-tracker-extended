@@ -10,32 +10,30 @@ final class WikiDropRate
 {
 	private final String quantity;
 	private final String rate;
-	private final String section;
-	private final boolean rareGemTable;
+	private final String tableLabel;
 
-	WikiDropRate(String quantity, String rate, String section, boolean rareGemTable)
+	WikiDropRate(String quantity, String rate, String tableLabel)
 	{
 		this.quantity = quantity;
 		this.rate = rate;
-		this.section = section;
-		this.rareGemTable = rareGemTable;
+		this.tableLabel = tableLabel;
 	}
 
-	boolean isRareGemTable()
+	String getTableLabel()
 	{
-		return rareGemTable;
+		return tableLabel;
 	}
 
-	String format(boolean includeTableLabel)
+	String format()
 	{
 		StringBuilder formatted = new StringBuilder(rate);
 		if (!quantity.isEmpty() && !"N/A".equalsIgnoreCase(quantity))
 		{
 			formatted.append(" (x").append(formatQuantity(quantity)).append(')');
 		}
-		if (includeTableLabel && rareGemTable)
+		if (!tableLabel.isEmpty())
 		{
-			formatted.append(" (Rare/Gem Table)");
+			formatted.append(" (").append(tableLabel).append(')');
 		}
 		return formatted.toString();
 	}
@@ -57,13 +55,12 @@ final class WikiDropRate
 	{
 		output.writeUTF(quantity);
 		output.writeUTF(rate);
-		output.writeUTF(section);
-		output.writeBoolean(rareGemTable);
+		output.writeUTF(tableLabel);
 	}
 
 	static WikiDropRate read(DataInput input) throws IOException
 	{
-		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF(), input.readBoolean());
+		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF());
 	}
 
 	@Override
@@ -78,15 +75,14 @@ final class WikiDropRate
 			return false;
 		}
 		WikiDropRate rate = (WikiDropRate) other;
-		return rareGemTable == rate.rareGemTable
-			&& quantity.equals(rate.quantity)
+		return quantity.equals(rate.quantity)
 			&& this.rate.equals(rate.rate)
-			&& section.equals(rate.section);
+			&& tableLabel.equals(rate.tableLabel);
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(quantity, rate, section, rareGemTable);
+		return Objects.hash(quantity, rate, tableLabel);
 	}
 }

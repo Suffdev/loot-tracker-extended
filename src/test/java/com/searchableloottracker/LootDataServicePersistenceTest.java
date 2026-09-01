@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.http.api.loottracker.LootRecordType;
 import org.junit.Test;
@@ -39,7 +41,7 @@ public class LootDataServicePersistenceTest
 		String extendedKey = LootDataService.historyKey(new LootSourceId("NPC", "Gnome"));
 		String imported = configuration.get(SearchableLootTrackerConfig.GROUP, PROFILE, extendedKey);
 		assertNotNull(imported);
-		assertTrue(imported.contains("\"version\":1"));
+		assertTrue(imported.contains("\"version\":2"));
 		assertEquals(CORE_JSON, configuration.get(LootDataService.LOOT_TRACKER_GROUP, PROFILE, CORE_KEY));
 		assertEquals(LootDataService.IMPORT_VERSION, configuration.get(
 			SearchableLootTrackerConfig.GROUP, PROFILE, LootDataService.IMPORT_VERSION_KEY));
@@ -120,6 +122,26 @@ public class LootDataServicePersistenceTest
 			.anyMatch(operation -> operation.startsWith("set|" + SearchableLootTrackerConfig.GROUP + "|history_")));
 		assertFalse(configuration.mutations.stream()
 			.anyMatch(operation -> operation.contains("|" + LootDataService.LOOT_TRACKER_GROUP + "|")));
+	}
+
+	@Test
+	public void exactNpcVariantsArePersistedWithoutSplittingTheDisplayedSource()
+	{
+		FakeProfileConfiguration configuration = new FakeProfileConfiguration(PROFILE);
+		configuration.values.put(configuration.key(SearchableLootTrackerConfig.GROUP, PROFILE,
+			LootDataService.IMPORT_VERSION_KEY), LootDataService.IMPORT_VERSION);
+		LootDataService service = service(configuration);
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		service.add(new LootReceived("Greater demon", 104, LootRecordType.NPC,
+			java.util.Collections.emptyList(), 1, 7871));
+		service.add(new LootReceived("Greater demon", 104, LootRecordType.NPC,
+			java.util.Collections.emptyList(), 1, 7872));
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		assertEquals(1, service.snapshot().size());
+		assertEquals(new LinkedHashSet<>(Arrays.asList(7871, 7872)),
+			service.snapshot().get(0).getNpcIds());
 	}
 
 	@Test

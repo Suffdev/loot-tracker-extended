@@ -57,6 +57,6 @@ public class WikiDropTableDiskCacheTest
 	private static WikiDropTable table(String item, String quantity, String rate)
 	{
 		return new WikiDropTable(Collections.singletonMap(item.toLowerCase(),
-			Collections.singletonList(new WikiDropRate(quantity, rate, "Drops", false))));
+			Collections.singletonList(new WikiDropRate(quantity, rate, ""))));
 	}
 }

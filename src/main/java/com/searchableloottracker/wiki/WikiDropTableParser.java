@@ -35,20 +35,39 @@ final class WikiDropTableParser
 	private static WikiDropTable parse(Document document)
 	{
 		Map<String, List<WikiDropRate>> collectedRates = new LinkedHashMap<>();
-		for (Element table : document.select("table.item-drops"))
+		String levelTwo = "";
+		String levelThree = "";
+		String levelFour = "";
+		for (Element element : document.select("h2, h3, h4, table.item-drops"))
 		{
-			parseTable(table, collectedRates);
+			if (element.is("h2"))
+			{
+				levelTwo = cleanHeading(element.text());
+				levelThree = "";
+				levelFour = "";
+			}
+			else if (element.is("h3"))
+			{
+				levelThree = cleanHeading(element.text());
+				levelFour = "";
+			}
+			else if (element.is("h4"))
+			{
+				levelFour = cleanHeading(element.text());
+			}
+			else
+			{
+				parseTable(element, collectedRates,
+					tableLabel(levelTwo, levelThree, levelFour));
+			}
 		}
 		return new WikiDropTable(collectedRates);
 	}
 
-	private static void parseTable(Element table, Map<String, List<WikiDropRate>> rates)
+	private static void parseTable(Element table, Map<String, List<WikiDropRate>> rates,
+		String tableLabel)
 	{
 		TableColumns columns = findColumns(table.selectFirst("tr:has(th)"));
-		// The closest preceding heading owns the table and lets the UI distinguish
-		// ordinary rates from Rare/Gem Drop Table rolls.
-		String section = findSectionHeading(table);
-		boolean rareGemTable = isRareGemTable(section);
 
 		for (Element row : table.select("tr"))
 		{
@@ -65,7 +84,7 @@ final class WikiDropTableParser
 			{
 				continue;
 			}
-			WikiDropRate rate = new WikiDropRate(quantity, rarity, section, rareGemTable);
+			WikiDropRate rate = new WikiDropRate(quantity, rarity, tableLabel);
 			List<WikiDropRate> itemRates = rates.computeIfAbsent(
 				WikiDropTable.normalize(itemName), ignored -> new ArrayList<>());
 			if (!itemRates.contains(rate))
@@ -147,34 +166,46 @@ final class WikiDropTableParser
 		return rate.matches("^1\\s*/.*");
 	}
 
-	private static String findSectionHeading(Element table)
+	private static String cleanHeading(String heading)
 	{
-		Element level = table;
-		while (level != null && !"body".equals(level.tagName()))
-		{
-			for (Element sibling = level.previousElementSibling(); sibling != null;
-				sibling = sibling.previousElementSibling())
-			{
-				Elements headings = sibling.select("h2, h3, h4");
-				if (sibling.is("h2, h3, h4"))
-				{
-					return clean(sibling.text());
-				}
-				if (!headings.isEmpty())
-				{
-					return clean(headings.last().text());
-				}
-			}
-			level = level.parent();
-		}
-		return "";
+		return clean(heading).replaceFirst("(?i)\\s*\\[edit(?: \\| edit source)?]$", "");
 	}
 
-	private static boolean isRareGemTable(String section)
+	private static String tableLabel(String levelTwo, String levelThree, String levelFour)
 	{
-		String normalized = section.toLowerCase();
-		return normalized.contains("drop table")
-			&& (normalized.contains("rare") || normalized.contains("gem"));
+		String local = !levelFour.isEmpty() ? levelFour : levelThree;
+		String localLower = local.toLowerCase();
+		if (localLower.contains("rare") && localLower.contains("gem")
+			&& localLower.contains("table"))
+		{
+			return "Rare/Gem Table";
+		}
+		if (localLower.contains("rare") && localLower.contains("table"))
+		{
+			return "Rare Drop Table";
+		}
+		if (localLower.contains("gem") && localLower.contains("table"))
+		{
+			return "Gem Drop Table";
+		}
+
+		String major = levelTwo.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
+		String majorLower = major.toLowerCase();
+		boolean genericMajor = majorLower.isEmpty() || "drops".equals(majorLower)
+			|| "drop table".equals(majorLower) || "rewards".equals(majorLower);
+		if (!genericMajor)
+		{
+			if (localLower.contains("wilderness slayer tertiary"))
+			{
+				return "Wilderness Slayer";
+			}
+			return major;
+		}
+		if (localLower.contains("drop table") || localLower.endsWith("tertiary"))
+		{
+			return local;
+		}
+		return "";
 	}
 
 	private static int parsePositiveInt(String value, int fallback)

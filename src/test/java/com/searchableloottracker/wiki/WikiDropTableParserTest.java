@@ -100,6 +100,31 @@ public class WikiDropTableParserTest
 	}
 
 	@Test
+	public void displaysIndependentNamedDropTablesAndCanSelectAVariant()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<h2>Drops</h2><h3>Weapons</h3>"
+				+ dropTable("Rune sword", "1", "1/10")
+				+ "<h3>Rare drop table</h3>"
+				+ dropTable("Rune sword", "2", "1/100")
+				+ "<h2>Wilderness Slayer Cave drops</h2><h3>Weapons</h3>"
+				+ dropTable("Rune sword", "3", "1/5"));
+
+		assertEquals(Arrays.asList(
+			"1/10 (x1)",
+			"1/100 (x2) (Rare Drop Table)",
+			"1/5 (x3) (Wilderness Slayer Cave)"), table.getTooltipLines("Rune sword"));
+		assertEquals(Arrays.asList(
+			"1/100 (x2) (Rare Drop Table)",
+			"1/5 (x3) (Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Rune sword"));
+		assertEquals(Arrays.asList(
+			"1/10 (x1)",
+			"1/100 (x2) (Rare Drop Table)"),
+			table.selectBaseContext().getTooltipLines("Rune sword"));
+	}
+
+	@Test
 	public void buildsNameOnlyAndNpcIdLookupUrls()
 	{
 		HttpUrl nameOnly = WikiDropRateService.buildUrl("Gnome woman", null);
@@ -123,7 +148,21 @@ public class WikiDropTableParserTest
 		assertEquals("Grotesque Guardians", grotesqueGuardians.queryParameter("name"));
 		assertEquals("Drops", grotesqueGuardians.fragment());
 		assertNull(grotesqueGuardians.queryParameter("id"));
-		assertEquals("Grotesque Guardians", WikiSourceAliases.resolve(" dusk "));
-		assertEquals("Vorkath", WikiSourceAliases.resolve("Vorkath"));
+		assertEquals("Grotesque Guardians",
+			WikiSourceResolver.resolve("NPC", " dusk ", 7888).getPageTitle());
+		assertEquals("Vorkath", WikiSourceResolver.resolve("NPC", "Vorkath", 8061).getPageTitle());
+
+		WikiSourceResolution wilderness = WikiSourceResolver.resolve(
+			"NPC", "Greater demon", 7871);
+		assertEquals("Greater demon", wilderness.getPageTitle());
+		assertEquals(Integer.valueOf(7871), wilderness.getNpcId());
+		assertEquals("Wilderness Slayer Cave", wilderness.getTableContext());
+	}
+
+	private static String dropTable(String item, String quantity, String rarity)
+	{
+		return "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>" + item + "</td><td>" + quantity + "</td><td>" + rarity
+			+ "</td></tr></table>";
 	}
 }
