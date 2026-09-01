@@ -233,7 +233,8 @@ final class WikiDropTableParser
 
 	private static String stripDropSuffix(String heading)
 	{
-		return heading.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
+		return heading.replaceFirst("(?i)^(?:drops|rewards)\\s*\\((.+)\\)$", "$1")
+			.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
 	}
 
 	private static boolean isGenericHeading(String heading)

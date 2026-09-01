@@ -99,6 +99,21 @@ public final class WikiDropTable
 		return new WikiDropTable(merged);
 	}
 
+	WikiDropTable withContextPrefix(String prefix)
+	{
+		Map<String, List<WikiDropRate>> prefixed = new LinkedHashMap<>();
+		for (Map.Entry<String, List<WikiDropRate>> entry : ratesByItem.entrySet())
+		{
+			List<WikiDropRate> rates = new ArrayList<>(entry.getValue().size());
+			for (WikiDropRate rate : entry.getValue())
+			{
+				rates.add(rate.withContextPrefix(prefix));
+			}
+			prefixed.put(entry.getKey(), rates);
+		}
+		return new WikiDropTable(prefixed);
+	}
+
 	/**
 	 * Selects one variant section while retaining shared conditional tables. If the Wiki markup does
 	 * not contain the requested label, the unfiltered table is returned instead of hiding rates.

@@ -43,6 +43,13 @@ final class WikiDropRate
 			+ tableLabel.toLowerCase(Locale.ENGLISH);
 	}
 
+	WikiDropRate withContextPrefix(String prefix)
+	{
+		String prefixedContext = contextLabel.isEmpty()
+			? prefix : prefix + " - " + contextLabel;
+		return new WikiDropRate(quantity, rate, tableLabel, prefixedContext);
+	}
+
 	String format()
 	{
 		StringBuilder formatted = new StringBuilder(rate);

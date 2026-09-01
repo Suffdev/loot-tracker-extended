@@ -6,8 +6,10 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,6 +58,30 @@ final class WikiSourceResolver
 		return new WikiSourceResolution(trimmedName, "Drops", validNpcId, null);
 	}
 
+	/**
+	 * Returns every plausible owner page for ID-less history. Exact-ID overrides may opt into this
+	 * list when RuneLite groups several independently documented monsters under one display name.
+	 */
+	static List<WikiSourceResolution> resolveNameCandidates(String sourceType, String sourceName)
+	{
+		String trimmedName = sourceName.trim();
+		String normalizedType = sourceType.trim().toUpperCase(Locale.ENGLISH);
+		Map<String, WikiSourceResolution> candidates = new LinkedHashMap<>();
+		WikiSourceResolution primary = resolve(sourceType, sourceName, null);
+		candidates.put(primary.getPageTitle().toLowerCase(Locale.ENGLISH), primary);
+		for (OverrideEntry entry : OVERRIDES)
+		{
+			if (entry.includeForNameLookup && entry.matchesSource(normalizedType, trimmedName))
+			{
+				WikiSourceResolution candidate = new WikiSourceResolution(
+					entry.pageTitle, entry.section, null, null);
+				candidates.putIfAbsent(
+					candidate.getPageTitle().toLowerCase(Locale.ENGLISH), candidate);
+			}
+		}
+		return Collections.unmodifiableList(new ArrayList<>(candidates.values()));
+	}
+
 	private static List<OverrideEntry> loadOverrides()
 	{
 		try (InputStream input = WikiSourceResolver.class.getResourceAsStream(OVERRIDES_RESOURCE))
@@ -92,6 +118,7 @@ final class WikiSourceResolver
 		private String section = "Drops";
 		private boolean retainNpcId;
 		private String tableContext;
+		private boolean includeForNameLookup;
 
 		private void validate()
 		{
@@ -105,7 +132,7 @@ final class WikiSourceResolver
 
 		private boolean matches(String type, String name, Integer npcId)
 		{
-			if (!sourceType.trim().equalsIgnoreCase(type) || !sourceName.trim().equalsIgnoreCase(name))
+			if (!matchesSource(type, name))
 			{
 				return false;
 			}
@@ -125,6 +152,12 @@ final class WikiSourceResolver
 				}
 			}
 			return false;
+		}
+
+		private boolean matchesSource(String type, String name)
+		{
+			return sourceType.trim().equalsIgnoreCase(type)
+				&& sourceName.trim().equalsIgnoreCase(name);
 		}
 
 		private boolean isMoreSpecificThan(OverrideEntry other)

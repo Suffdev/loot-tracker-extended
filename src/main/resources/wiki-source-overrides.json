@@ -8,6 +8,26 @@
   },
   {
     "sourceType": "NPC",
+    "sourceName": "Dagannoth",
+    "npcIds": [2259, 5942],
+    "pageTitle": "Dagannoth (Waterbirth Island)",
+    "section": "Drops (Level 88)",
+    "retainNpcId": false,
+    "tableContext": "Level 88",
+    "includeForNameLookup": true
+  },
+  {
+    "sourceType": "NPC",
+    "sourceName": "Dagannoth",
+    "npcIds": [3185, 5943],
+    "pageTitle": "Dagannoth (Waterbirth Island)",
+    "section": "Drops (Level 90)",
+    "retainNpcId": false,
+    "tableContext": "Level 90",
+    "includeForNameLookup": true
+  },
+  {
+    "sourceType": "NPC",
     "sourceName": "Black dragon",
     "npcIds": [7861, 7862, 7863],
     "pageTitle": "Black dragon",

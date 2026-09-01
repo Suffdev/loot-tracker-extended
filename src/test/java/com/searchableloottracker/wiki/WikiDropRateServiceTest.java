@@ -27,6 +27,13 @@ public class WikiDropRateServiceTest
 	private static final String DROP_TABLE =
 		"<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
 			+ "<tr><td>Coins</td><td>10</td><td>1/2</td></tr></table>";
+	private static final String WATERBIRTH_TABLES =
+		"<h2>Drops (Level 88)</h2>"
+			+ "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>Coins</td><td>20</td><td>1/3</td></tr></table>"
+			+ "<h2>Drops (Level 90)</h2>"
+			+ "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>Coins</td><td>30</td><td>1/4</td></tr></table>";
 
 	private OkHttpClient client;
 
@@ -74,6 +81,50 @@ public class WikiDropRateServiceTest
 			new LinkedHashSet<>(Arrays.asList(7871, 7872, 7873))).get(5, TimeUnit.SECONDS);
 
 		assertEquals(1, requests.get());
+	}
+
+	@Test
+	public void mergesRegisteredPagesForIdLessDagannothHistory() throws Exception
+	{
+		AtomicInteger requests = new AtomicInteger();
+		WikiDropRateService service = service(chain ->
+		{
+			requests.incrementAndGet();
+			String name = chain.request().url().queryParameter("name");
+			return response(chain, 200, "Dagannoth (Waterbirth Island)".equals(name)
+				? WATERBIRTH_TABLES : DROP_TABLE);
+		});
+
+		WikiDropTable table = service.lookupVariants(
+			"NPC", "Dagannoth", new LinkedHashSet<>()).get(5, TimeUnit.SECONDS);
+
+		assertEquals(2, requests.get());
+		assertEquals(Arrays.asList(
+			"1/2 (x10) (Dagannoth)",
+			"1/3 (x20) (Dagannoth (Waterbirth Island) - Level 88)",
+			"1/4 (x30) (Dagannoth (Waterbirth Island) - Level 90)"),
+			table.getTooltipLines("Coins"));
+	}
+
+	@Test
+	public void exactWaterbirthIdsOnlyLoadTheirLevelAndCoalesce() throws Exception
+	{
+		AtomicInteger requests = new AtomicInteger();
+		List<String> requestedNames = new ArrayList<>();
+		WikiDropRateService service = service(chain ->
+		{
+			requests.incrementAndGet();
+			requestedNames.add(chain.request().url().queryParameter("name"));
+			return response(chain, 200, WATERBIRTH_TABLES);
+		});
+
+		WikiDropTable table = service.lookupVariants("NPC", "Dagannoth",
+			new LinkedHashSet<>(Arrays.asList(2259, 5942))).get(5, TimeUnit.SECONDS);
+
+		assertEquals(1, requests.get());
+		assertEquals(Arrays.asList("Dagannoth (Waterbirth Island)"), requestedNames);
+		assertEquals(Arrays.asList("1/3 (x20) (Level 88)"),
+			table.getTooltipLines("Coins"));
 	}
 
 	@Test

@@ -89,6 +89,11 @@ public final class WikiDropRateService
 			return failedLookup("Wiki lookup is not permitted for this loot source");
 		}
 		WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+		return lookup(resolution);
+	}
+
+	private CompletableFuture<WikiDropTable> lookup(WikiSourceResolution resolution)
+	{
 		String lookupName = resolution.getPageTitle();
 		Integer lookupNpcId = resolution.getNpcId();
 		LookupKey cacheKey = new LookupKey(
@@ -106,7 +111,7 @@ public final class WikiDropRateService
 		{
 			if (existing.isCompletedExceptionally() && inFlight.remove(cacheKey, existing))
 			{
-				return lookup(sourceType, sourceName, npcId);
+				return lookup(resolution);
 			}
 			return existing;
 		}
@@ -170,7 +175,23 @@ public final class WikiDropRateService
 	{
 		if (npcIds == null || npcIds.isEmpty())
 		{
-			return lookup(sourceType, sourceName, (Integer) null);
+			if (!enabled || !canLookup(sourceType, sourceName))
+			{
+				return lookup(sourceType, sourceName, (Integer) null);
+			}
+			List<WikiSourceResolution> candidates =
+				WikiSourceResolver.resolveNameCandidates(sourceType, sourceName);
+			if (candidates.size() == 1)
+			{
+				return lookup(candidates.get(0));
+			}
+			List<CompletableFuture<WikiDropTable>> candidateLookups =
+				new ArrayList<>(candidates.size());
+			for (WikiSourceResolution candidate : candidates)
+			{
+				candidateLookups.add(lookup(candidate));
+			}
+			return mergeLookups(candidateLookups, candidates);
 		}
 		if (npcIds.size() == 1)
 		{
@@ -188,6 +209,22 @@ public final class WikiDropRateService
 			for (CompletableFuture<WikiDropTable> lookup : lookups)
 			{
 				tables.add(lookup.join());
+			}
+			return WikiDropTable.merge(tables);
+		});
+	}
+
+	private static CompletableFuture<WikiDropTable> mergeLookups(
+		List<CompletableFuture<WikiDropTable>> lookups, List<WikiSourceResolution> resolutions)
+	{
+		CompletableFuture<?>[] futures = lookups.toArray(new CompletableFuture<?>[0]);
+		return CompletableFuture.allOf(futures).thenApply(ignored ->
+		{
+			List<WikiDropTable> tables = new ArrayList<>(lookups.size());
+			for (int index = 0; index < lookups.size(); index++)
+			{
+				tables.add(lookups.get(index).join().withContextPrefix(
+					resolutions.get(index).getPageTitle()));
 			}
 			return WikiDropTable.merge(tables);
 		});
@@ -305,15 +342,20 @@ public final class WikiDropRateService
 		}
 		Integer representative = npcIds.iterator().next();
 		WikiSourceResolution first = WikiSourceResolver.resolve(sourceType, sourceName, representative);
+		boolean mixedContexts = false;
 		for (Integer npcId : npcIds)
 		{
 			WikiSourceResolution candidate = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
-			if (!first.getPageTitle().equals(candidate.getPageTitle())
-				|| !first.getSection().equals(candidate.getSection())
-				|| !Objects.equals(first.getTableContext(), candidate.getTableContext()))
+			if (!first.getPageTitle().equals(candidate.getPageTitle()))
 			{
 				return getDropTableUrl(sourceType, sourceName, (Integer) null);
 			}
+			mixedContexts |= !first.getSection().equals(candidate.getSection())
+				|| !Objects.equals(first.getTableContext(), candidate.getTableContext());
+		}
+		if (mixedContexts)
+		{
+			return buildUrl(first.getPageTitle(), null).toString();
 		}
 		return getDropTableUrl(sourceType, sourceName, representative);
 	}
@@ -392,7 +434,7 @@ public final class WikiDropRateService
 
 					WikiDropTable table = WikiDropTableParser.parse(
 						new ByteArrayInputStream(readBoundedBody(body)));
-					if (npcId != null)
+					if (npcId != null || lookup.tableContext != null)
 					{
 						String selectedContext = lookup.tableContext;
 						if (!table.hasContext(selectedContext))

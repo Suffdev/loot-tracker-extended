@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -197,6 +198,18 @@ public class WikiDropTableParserTest
 		assertEquals("Greater demon", wilderness.getPageTitle());
 		assertEquals(Integer.valueOf(7871), wilderness.getNpcId());
 		assertEquals("Wilderness Slayer Cave", wilderness.getTableContext());
+
+		WikiSourceResolution waterbirth = WikiSourceResolver.resolve("NPC", "Dagannoth", 2259);
+		assertEquals("Dagannoth (Waterbirth Island)", waterbirth.getPageTitle());
+		assertEquals("Level 88", waterbirth.getTableContext());
+		assertNull(waterbirth.getNpcId());
+		assertEquals(2, WikiSourceResolver.resolveNameCandidates(
+			"NPC", "Dagannoth").size());
+
+		HttpUrl mixedWaterbirth = HttpUrl.parse(service.getDropTableUrlForVariants(
+			"NPC", "Dagannoth", new LinkedHashSet<>(Arrays.asList(2259, 3185))));
+		assertEquals("Dagannoth (Waterbirth Island)", mixedWaterbirth.queryParameter("name"));
+		assertNull(mixedWaterbirth.fragment());
 	}
 
 	private static String dropTable(String item, String quantity, String rarity)
