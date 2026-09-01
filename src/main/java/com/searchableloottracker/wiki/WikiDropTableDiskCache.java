@@ -25,7 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 final class WikiDropTableDiskCache
 {
 	private static final int MAGIC = 0x4c544557;
-	private static final int VERSION = 2;
+	private static final int VERSION = 3;
 	private static final String EXTENSION = ".table";
 
 	private final File directory;

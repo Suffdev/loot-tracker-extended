@@ -3,6 +3,7 @@ package com.searchableloottracker.wiki;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Objects;
 
 /** A single quantity/rate combination as rendered in a Wiki drop-table row. */
@@ -11,17 +12,35 @@ final class WikiDropRate
 	private final String quantity;
 	private final String rate;
 	private final String tableLabel;
+	private final String contextLabel;
 
 	WikiDropRate(String quantity, String rate, String tableLabel)
+	{
+		this(quantity, rate, tableLabel, "");
+	}
+
+	WikiDropRate(String quantity, String rate, String tableLabel, String contextLabel)
 	{
 		this.quantity = quantity;
 		this.rate = rate;
 		this.tableLabel = tableLabel;
+		this.contextLabel = contextLabel;
 	}
 
 	String getTableLabel()
 	{
 		return tableLabel;
+	}
+
+	String getContextLabel()
+	{
+		return contextLabel;
+	}
+
+	String getTableIdentity()
+	{
+		return contextLabel.toLowerCase(Locale.ENGLISH) + '\0'
+			+ tableLabel.toLowerCase(Locale.ENGLISH);
 	}
 
 	String format()
@@ -31,9 +50,15 @@ final class WikiDropRate
 		{
 			formatted.append(" (x").append(formatQuantity(quantity)).append(')');
 		}
-		if (!tableLabel.isEmpty())
+		String displayLabel = tableLabel;
+		if (!contextLabel.isEmpty() && !contextLabel.equalsIgnoreCase(tableLabel))
 		{
-			formatted.append(" (").append(tableLabel).append(')');
+			displayLabel = displayLabel.isEmpty()
+				? contextLabel : displayLabel + " - " + contextLabel;
+		}
+		if (!displayLabel.isEmpty())
+		{
+			formatted.append(" (").append(displayLabel).append(')');
 		}
 		return formatted.toString();
 	}
@@ -56,11 +81,12 @@ final class WikiDropRate
 		output.writeUTF(quantity);
 		output.writeUTF(rate);
 		output.writeUTF(tableLabel);
+		output.writeUTF(contextLabel);
 	}
 
 	static WikiDropRate read(DataInput input) throws IOException
 	{
-		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF());
+		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF(), input.readUTF());
 	}
 
 	@Override
@@ -77,12 +103,13 @@ final class WikiDropRate
 		WikiDropRate rate = (WikiDropRate) other;
 		return quantity.equals(rate.quantity)
 			&& this.rate.equals(rate.rate)
-			&& tableLabel.equals(rate.tableLabel);
+			&& tableLabel.equals(rate.tableLabel)
+			&& contextLabel.equals(rate.contextLabel);
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(quantity, rate, tableLabel);
+		return Objects.hash(quantity, rate, tableLabel, contextLabel);
 	}
 }

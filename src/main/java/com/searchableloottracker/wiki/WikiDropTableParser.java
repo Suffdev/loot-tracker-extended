@@ -58,14 +58,15 @@ final class WikiDropTableParser
 			else
 			{
 				parseTable(element, collectedRates,
-					tableLabel(levelTwo, levelThree, levelFour));
+					tableLabel(levelTwo, levelThree, levelFour),
+					contextLabel(levelTwo, levelThree, levelFour));
 			}
 		}
 		return new WikiDropTable(collectedRates);
 	}
 
 	private static void parseTable(Element table, Map<String, List<WikiDropRate>> rates,
-		String tableLabel)
+		String tableLabel, String contextLabel)
 	{
 		TableColumns columns = findColumns(table.selectFirst("tr:has(th)"));
 
@@ -84,7 +85,7 @@ final class WikiDropTableParser
 			{
 				continue;
 			}
-			WikiDropRate rate = new WikiDropRate(quantity, rarity, tableLabel);
+			WikiDropRate rate = new WikiDropRate(quantity, rarity, tableLabel, contextLabel);
 			List<WikiDropRate> itemRates = rates.computeIfAbsent(
 				WikiDropTable.normalize(itemName), ignored -> new ArrayList<>());
 			if (!itemRates.contains(rate))
@@ -173,7 +174,8 @@ final class WikiDropTableParser
 
 	private static String tableLabel(String levelTwo, String levelThree, String levelFour)
 	{
-		String local = !levelFour.isEmpty() ? levelFour : levelThree;
+		String local = !levelFour.isEmpty() ? levelFour
+			: !levelThree.isEmpty() ? levelThree : levelTwo;
 		String localLower = local.toLowerCase();
 		if (localLower.contains("rare") && localLower.contains("gem")
 			&& localLower.contains("table"))
@@ -189,23 +191,89 @@ final class WikiDropTableParser
 			return "Gem Drop Table";
 		}
 
-		String major = levelTwo.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
-		String majorLower = major.toLowerCase();
-		boolean genericMajor = majorLower.isEmpty() || "drops".equals(majorLower)
-			|| "drop table".equals(majorLower) || "rewards".equals(majorLower);
-		if (!genericMajor)
+		if (localLower.contains("wilderness slayer tertiary"))
 		{
-			if (localLower.contains("wilderness slayer tertiary"))
-			{
-				return "Wilderness Slayer";
-			}
-			return major;
+			return "Wilderness Slayer";
 		}
-		if (localLower.contains("drop table") || localLower.endsWith("tertiary"))
+		if (localLower.contains("drop table")
+			|| (localLower.endsWith("tertiary") && !"tertiary".equals(localLower)))
 		{
 			return local;
 		}
 		return "";
+	}
+
+	/**
+	 * Finds the variant/location heading that owns a table independently of its local category.
+	 * Wiki pages commonly nest "Weapons and armour" beneath headings such as "Standard and
+	 * Catacombs of Kourend"; retaining both levels prevents distinct variant rates from collapsing
+	 * into one apparently ambiguous table.
+	 */
+	private static String contextLabel(String levelTwo, String levelThree, String levelFour)
+	{
+		String major = stripDropSuffix(levelTwo);
+		if (!isGenericHeading(major) && tableLabel(levelTwo, "", "").isEmpty())
+		{
+			return major;
+		}
+
+		String secondary = stripDropSuffix(levelThree);
+		if (!isGenericHeading(secondary) && tableLabel("", levelThree, "").isEmpty())
+		{
+			return secondary;
+		}
+
+		String tertiary = stripDropSuffix(levelFour);
+		if (!isGenericHeading(tertiary) && tableLabel("", "", levelFour).isEmpty())
+		{
+			return tertiary;
+		}
+		return "";
+	}
+
+	private static String stripDropSuffix(String heading)
+	{
+		return heading.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
+	}
+
+	private static boolean isGenericHeading(String heading)
+	{
+		switch (heading.toLowerCase())
+		{
+			case "":
+			case "drops":
+			case "drop table":
+			case "rewards":
+			case "100%":
+			case "always":
+			case "pre-roll":
+			case "main drop":
+			case "weapons":
+			case "armour":
+			case "weapons and armour":
+			case "weapons and ammunition":
+			case "equipment":
+			case "runes":
+			case "runes and ammunition":
+			case "ammunition":
+			case "herbs":
+			case "seeds":
+			case "food":
+			case "potions":
+			case "resources":
+			case "ores and bars":
+			case "gems":
+			case "materials":
+			case "other":
+			case "miscellaneous":
+			case "tertiary":
+			case "unique":
+			case "uniques":
+			case "guaranteed":
+				return true;
+			default:
+				return false;
+		}
 	}
 
 	private static int parsePositiveInt(String value, int fallback)

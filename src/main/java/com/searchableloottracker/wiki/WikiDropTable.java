@@ -54,7 +54,7 @@ public final class WikiDropTable
 		Map<String, Integer> ratesPerTable = new HashMap<>();
 		for (WikiDropRate rate : rates)
 		{
-			String table = rate.getTableLabel();
+			String table = rate.getTableIdentity();
 			int count = ratesPerTable.merge(table, 1, Integer::sum);
 			if (count > 1)
 			{
@@ -120,8 +120,9 @@ public final class WikiDropTable
 			List<WikiDropRate> retained = new ArrayList<>();
 			for (WikiDropRate rate : entry.getValue())
 			{
-				if (rate.getTableLabel().equalsIgnoreCase(requestedContext)
-					|| isSharedTable(rate.getTableLabel()))
+				if (contextsMatch(rate.getContextLabel(), requestedContext)
+					|| (rate.getContextLabel().isEmpty()
+						&& isSharedTable(rate.getTableLabel())))
 				{
 					retained.add(rate);
 				}
@@ -138,7 +139,7 @@ public final class WikiDropTable
 	{
 		return context != null && ratesByItem.values().stream()
 			.flatMap(List::stream)
-			.anyMatch(rate -> rate.getTableLabel().equalsIgnoreCase(context));
+			.anyMatch(rate -> contextsMatch(rate.getContextLabel(), context));
 	}
 
 	WikiDropTable selectBaseContext()
@@ -149,7 +150,7 @@ public final class WikiDropTable
 			List<WikiDropRate> retained = new ArrayList<>();
 			for (WikiDropRate rate : entry.getValue())
 			{
-				if (rate.getTableLabel().isEmpty() || isSharedTable(rate.getTableLabel()))
+				if (rate.getContextLabel().isEmpty() || isBaseContext(rate.getContextLabel()))
 				{
 					retained.add(rate);
 				}
@@ -162,12 +163,52 @@ public final class WikiDropTable
 		return selected.isEmpty() ? this : new WikiDropTable(selected);
 	}
 
+	private static boolean contextsMatch(String available, String requested)
+	{
+		String normalizedAvailable = normalizeContext(available);
+		String normalizedRequested = normalizeContext(requested);
+		return !normalizedAvailable.isEmpty() && !normalizedRequested.isEmpty()
+			&& (normalizedAvailable.equals(normalizedRequested)
+				|| containsContext(normalizedAvailable, normalizedRequested)
+				|| containsContext(normalizedRequested, normalizedAvailable));
+	}
+
+	private static boolean containsContext(String container, String candidate)
+	{
+		int start = container.indexOf(candidate);
+		while (start >= 0)
+		{
+			int end = start + candidate.length();
+			boolean startsAtBoundary = start == 0
+				|| !Character.isLetterOrDigit(container.charAt(start - 1));
+			boolean endsAtBoundary = end == container.length()
+				|| !Character.isLetterOrDigit(container.charAt(end));
+			if (startsAtBoundary && endsAtBoundary)
+			{
+				return true;
+			}
+			start = container.indexOf(candidate, start + 1);
+		}
+		return false;
+	}
+
+	private static boolean isBaseContext(String context)
+	{
+		return normalizeContext(context).contains("standard");
+	}
+
 	private static boolean isSharedTable(String label)
 	{
 		String normalized = label.toLowerCase(Locale.ENGLISH);
 		return normalized.equals("rare drop table")
 			|| normalized.equals("gem drop table")
 			|| normalized.equals("rare/gem table");
+	}
+
+	private static String normalizeContext(String context)
+	{
+		return context == null ? "" : context.trim().toLowerCase(Locale.ENGLISH)
+			.replace('_', ' ').replaceAll("\\s+", " ");
 	}
 
 	void write(DataOutput output) throws IOException

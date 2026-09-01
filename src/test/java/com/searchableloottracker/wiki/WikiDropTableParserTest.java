@@ -125,6 +125,46 @@ public class WikiDropTableParserTest
 	}
 
 	@Test
+	public void preservesAbyssalDemonVariantAboveCategoryHeading()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<h2>Drops</h2>"
+				+ "<h3>Standard and Catacombs of Kourend</h3>"
+				+ "<h4>Weapons and armour</h4>"
+				+ dropTable("Steel battleaxe", "1", "3/128")
+				+ "<h4>Rare drop table</h4>"
+				+ dropTable("Rune 2h sword", "1", "1/1,000")
+				+ "<h3>Wilderness Slayer Cave</h3>"
+				+ "<h4>Weapons and armour</h4>"
+				+ dropTable("Steel battleaxe", "1", "3/68")
+				+ "<h4>Rare drop table</h4>"
+				+ dropTable("Rune 2h sword", "1", "1/500"));
+
+		assertEquals(Arrays.asList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)",
+			"3/68 (x1) (Wilderness Slayer Cave)"),
+			table.getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList("3/68 (x1) (Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)"),
+			table.selectContext("Standard").getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)"),
+			table.selectContext("Catacombs of Kourend").getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)"),
+			table.selectBaseContext().getTooltipLines("Steel battleaxe"));
+		assertEquals(Arrays.asList(
+			"1/1,000 (x1) (Rare Drop Table - Standard and Catacombs of Kourend)",
+			"1/500 (x1) (Rare Drop Table - Wilderness Slayer Cave)"),
+			table.getTooltipLines("Rune 2h sword"));
+		assertEquals(Collections.singletonList(
+			"1/500 (x1) (Rare Drop Table - Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Rune 2h sword"));
+	}
+
+	@Test
 	public void buildsNameOnlyAndNpcIdLookupUrls()
 	{
 		HttpUrl nameOnly = WikiDropRateService.buildUrl("Gnome woman", null);
