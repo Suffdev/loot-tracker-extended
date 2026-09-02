@@ -2,9 +2,10 @@ package com.searchableloottracker.wiki;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.LinkedHashMap;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -35,20 +36,40 @@ final class WikiDropTableParser
 	private static WikiDropTable parse(Document document)
 	{
 		Map<String, List<WikiDropRate>> collectedRates = new LinkedHashMap<>();
-		for (Element table : document.select("table.item-drops"))
+		String levelTwo = "";
+		String levelThree = "";
+		String levelFour = "";
+		for (Element element : document.select("h2, h3, h4, table.item-drops"))
 		{
-			parseTable(table, collectedRates);
+			if (element.is("h2"))
+			{
+				levelTwo = cleanHeading(element.text());
+				levelThree = "";
+				levelFour = "";
+			}
+			else if (element.is("h3"))
+			{
+				levelThree = cleanHeading(element.text());
+				levelFour = "";
+			}
+			else if (element.is("h4"))
+			{
+				levelFour = cleanHeading(element.text());
+			}
+			else
+			{
+				parseTable(element, collectedRates,
+					tableLabel(levelTwo, levelThree, levelFour),
+					contextLabel(levelTwo, levelThree, levelFour));
+			}
 		}
 		return new WikiDropTable(collectedRates);
 	}
 
-	private static void parseTable(Element table, Map<String, List<WikiDropRate>> rates)
+	private static void parseTable(Element table, Map<String, List<WikiDropRate>> rates,
+		String tableLabel, String contextLabel)
 	{
 		TableColumns columns = findColumns(table.selectFirst("tr:has(th)"));
-		// The closest preceding heading owns the table and lets the UI distinguish
-		// ordinary rates from Rare/Gem Drop Table rolls.
-		String section = findSectionHeading(table);
-		boolean rareGemTable = isRareGemTable(section);
 
 		for (Element row : table.select("tr"))
 		{
@@ -65,7 +86,7 @@ final class WikiDropTableParser
 			{
 				continue;
 			}
-			WikiDropRate rate = new WikiDropRate(quantity, rarity, section, rareGemTable);
+			WikiDropRate rate = new WikiDropRate(quantity, rarity, tableLabel, contextLabel);
 			List<WikiDropRate> itemRates = rates.computeIfAbsent(
 				WikiDropTable.normalize(itemName), ignored -> new ArrayList<>());
 			if (!itemRates.contains(rate))
@@ -147,34 +168,86 @@ final class WikiDropTableParser
 		return rate.matches("^1\\s*/.*");
 	}
 
-	private static String findSectionHeading(Element table)
+	private static String cleanHeading(String heading)
 	{
-		Element level = table;
-		while (level != null && !"body".equals(level.tagName()))
+		return clean(heading).replaceFirst("(?i)\\s*\\[edit(?: \\| edit source)?]$", "");
+	}
+
+	private static String tableLabel(String levelTwo, String levelThree, String levelFour)
+	{
+		String local = !levelFour.isEmpty() ? levelFour
+			: !levelThree.isEmpty() ? levelThree : levelTwo;
+		String localLower = local.toLowerCase();
+		if (localLower.contains("rare") && localLower.contains("gem")
+			&& localLower.contains("table"))
 		{
-			for (Element sibling = level.previousElementSibling(); sibling != null;
-				sibling = sibling.previousElementSibling())
-			{
-				Elements headings = sibling.select("h2, h3, h4");
-				if (sibling.is("h2, h3, h4"))
-				{
-					return clean(sibling.text());
-				}
-				if (!headings.isEmpty())
-				{
-					return clean(headings.last().text());
-				}
-			}
-			level = level.parent();
+			return "Rare/Gem Table";
+		}
+		if (localLower.contains("rare") && localLower.contains("table"))
+		{
+			return "Rare Drop Table";
+		}
+		if (localLower.contains("gem") && localLower.contains("table"))
+		{
+			return "Gem Drop Table";
+		}
+
+		if (localLower.contains("wilderness slayer tertiary"))
+		{
+			return "Wilderness Slayer";
+		}
+		if (localLower.contains("drop table")
+			|| (localLower.endsWith("tertiary") && !"tertiary".equals(localLower)))
+		{
+			return local;
 		}
 		return "";
 	}
 
-	private static boolean isRareGemTable(String section)
+	/**
+	 * Finds the variant/location heading that owns a table independently of its local category.
+	 * Wiki pages commonly nest "Weapons and armour" beneath headings such as "Standard and
+	 * Catacombs of Kourend"; retaining both levels prevents distinct variant rates from collapsing
+	 * into one apparently ambiguous table.
+	 */
+	private static String contextLabel(String levelTwo, String levelThree, String levelFour)
 	{
-		String normalized = section.toLowerCase();
-		return normalized.contains("drop table")
-			&& (normalized.contains("rare") || normalized.contains("gem"));
+		String major = variantLabel(levelTwo);
+		if (!major.isEmpty() && tableLabel(levelTwo, "", "").isEmpty())
+		{
+			return major;
+		}
+
+		String secondary = variantLabel(levelThree);
+		if (!secondary.isEmpty() && tableLabel("", levelThree, "").isEmpty())
+		{
+			return secondary;
+		}
+
+		String tertiary = variantLabel(levelFour);
+		if (!tertiary.isEmpty() && tableLabel("", "", levelFour).isEmpty())
+		{
+			return tertiary;
+		}
+		return "";
+	}
+
+	private static String stripDropSuffix(String heading)
+	{
+		return heading.replaceFirst("(?i)^(?:drops|rewards)\\s*\\((.+)\\)$", "$1")
+			.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
+	}
+
+	private static String variantLabel(String heading)
+	{
+		String candidate = stripDropSuffix(heading);
+		String normalized = candidate.toLowerCase(Locale.ENGLISH);
+		boolean structuralVariant = normalized.startsWith("level ")
+			|| normalized.contains("standard")
+			|| normalized.contains("wilderness slayer cave")
+			|| normalized.contains("catacombs of kourend");
+		return structuralVariant || WikiSourceResolver.isRegisteredContext(candidate)
+			? candidate : "";
 	}
 
 	private static int parsePositiveInt(String value, int fallback)

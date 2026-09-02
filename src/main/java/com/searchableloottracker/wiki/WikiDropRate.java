@@ -3,6 +3,7 @@ package com.searchableloottracker.wiki;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Objects;
 
 /** A single quantity/rate combination as rendered in a Wiki drop-table row. */
@@ -10,32 +11,61 @@ final class WikiDropRate
 {
 	private final String quantity;
 	private final String rate;
-	private final String section;
-	private final boolean rareGemTable;
+	private final String tableLabel;
+	private final String contextLabel;
 
-	WikiDropRate(String quantity, String rate, String section, boolean rareGemTable)
+	WikiDropRate(String quantity, String rate, String tableLabel)
+	{
+		this(quantity, rate, tableLabel, "");
+	}
+
+	WikiDropRate(String quantity, String rate, String tableLabel, String contextLabel)
 	{
 		this.quantity = quantity;
 		this.rate = rate;
-		this.section = section;
-		this.rareGemTable = rareGemTable;
+		this.tableLabel = tableLabel;
+		this.contextLabel = contextLabel;
 	}
 
-	boolean isRareGemTable()
+	String getTableLabel()
 	{
-		return rareGemTable;
+		return tableLabel;
 	}
 
-	String format(boolean includeTableLabel)
+	String getContextLabel()
+	{
+		return contextLabel;
+	}
+
+	String getTableIdentity()
+	{
+		return contextLabel.toLowerCase(Locale.ENGLISH) + '\0'
+			+ tableLabel.toLowerCase(Locale.ENGLISH);
+	}
+
+	WikiDropRate withContextPrefix(String prefix)
+	{
+		String prefixedContext = contextLabel.isEmpty()
+			? prefix : prefix + " - " + contextLabel;
+		return new WikiDropRate(quantity, rate, tableLabel, prefixedContext);
+	}
+
+	String format()
 	{
 		StringBuilder formatted = new StringBuilder(rate);
 		if (!quantity.isEmpty() && !"N/A".equalsIgnoreCase(quantity))
 		{
 			formatted.append(" (x").append(formatQuantity(quantity)).append(')');
 		}
-		if (includeTableLabel && rareGemTable)
+		String displayLabel = tableLabel;
+		if (!contextLabel.isEmpty() && !contextLabel.equalsIgnoreCase(tableLabel))
 		{
-			formatted.append(" (Rare/Gem Table)");
+			displayLabel = displayLabel.isEmpty()
+				? contextLabel : displayLabel + " - " + contextLabel;
+		}
+		if (!displayLabel.isEmpty())
+		{
+			formatted.append(" (").append(displayLabel).append(')');
 		}
 		return formatted.toString();
 	}
@@ -57,13 +87,13 @@ final class WikiDropRate
 	{
 		output.writeUTF(quantity);
 		output.writeUTF(rate);
-		output.writeUTF(section);
-		output.writeBoolean(rareGemTable);
+		output.writeUTF(tableLabel);
+		output.writeUTF(contextLabel);
 	}
 
 	static WikiDropRate read(DataInput input) throws IOException
 	{
-		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF(), input.readBoolean());
+		return new WikiDropRate(input.readUTF(), input.readUTF(), input.readUTF(), input.readUTF());
 	}
 
 	@Override
@@ -78,15 +108,15 @@ final class WikiDropRate
 			return false;
 		}
 		WikiDropRate rate = (WikiDropRate) other;
-		return rareGemTable == rate.rareGemTable
-			&& quantity.equals(rate.quantity)
+		return quantity.equals(rate.quantity)
 			&& this.rate.equals(rate.rate)
-			&& section.equals(rate.section);
+			&& tableLabel.equals(rate.tableLabel)
+			&& contextLabel.equals(rate.contextLabel);
 	}
 
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(quantity, rate, section, rareGemTable);
+		return Objects.hash(quantity, rate, tableLabel, contextLabel);
 	}
 }

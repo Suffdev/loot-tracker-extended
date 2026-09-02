@@ -6,8 +6,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -15,10 +17,9 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import javax.inject.Inject;
 import net.runelite.client.RuneLite;
 import okhttp3.Call;
@@ -30,9 +31,9 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 /**
- * Resolves one complete source drop table at a time and shares it between all
- * item tooltips for that source. Disk reads and HTTP callbacks stay off the
- * client thread; duplicate requests are represented by the same future.
+ * Resolves one complete source variant at a time and shares it between all item tooltips for that
+ * source. Variant IDs mapped to the same Wiki context coalesce behind one future. Disk reads and
+ * HTTP callbacks stay off the client thread.
  */
 public final class WikiDropRateService
 {
@@ -40,12 +41,11 @@ public final class WikiDropRateService
 	private static final String USER_AGENT =
 		"Loot Tracker Extended (https://github.com/Suffdev/loot-tracker-extended)";
 	private static final int MAX_CONCURRENT_REQUESTS = 2;
+	private static final int MAX_LOOKUPS_PER_SOURCE = 16;
+	private static final int MAX_PENDING_REQUESTS = 64;
 	private static final int MAX_CACHE_ENTRIES = 256;
 	private static final int MAX_DISK_CACHE_ENTRIES = 1024;
 	private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-	private static final Pattern CLUE_SOURCE = Pattern.compile(
-		"(?i)^clue scroll \\((beginner|easy|medium|hard|elite|master)\\)$");
-
 	private final OkHttpClient httpClient;
 	private final WikiDropTableDiskCache diskCache;
 	// A source card can request several item tooltips at once. Coalescing here
@@ -91,9 +91,16 @@ public final class WikiDropRateService
 		{
 			return failedLookup("Wiki lookup is not permitted for this loot source");
 		}
-		String lookupName = resolveLookupName(sourceName);
-		Integer lookupNpcId = lookupName.equals(sourceName) ? validNpcId(npcId) : null;
-		LookupKey cacheKey = new LookupKey(lookupName, lookupNpcId);
+		WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+		return lookup(resolution);
+	}
+
+	private CompletableFuture<WikiDropTable> lookup(WikiSourceResolution resolution)
+	{
+		String lookupName = resolution.getPageTitle();
+		Integer lookupNpcId = resolution.getNpcId();
+		LookupKey cacheKey = new LookupKey(
+			lookupName, lookupNpcId, resolution.getTableContext());
 		WikiDropTable cached = getCached(cacheKey);
 		if (cached != null)
 		{
@@ -107,7 +114,7 @@ public final class WikiDropRateService
 		{
 			if (existing.isCompletedExceptionally() && inFlight.remove(cacheKey, existing))
 			{
-				return lookup(sourceType, sourceName, npcId);
+				return lookup(resolution);
 			}
 			return existing;
 		}
@@ -157,11 +164,123 @@ public final class WikiDropRateService
 				}
 				else
 				{
-					enqueue(new PendingLookup(lookupName, lookupNpcId, generation, result));
+					enqueue(new PendingLookup(lookupName, lookupNpcId,
+						resolution.getTableContext(), generation, result));
 				}
 			});
 		}
 		return result;
+	}
+
+	/** Resolves and combines every concrete variant represented by a name-grouped loot source. */
+	public CompletableFuture<WikiDropTable> lookupVariants(String sourceType, String sourceName,
+		Set<Integer> npcIds)
+	{
+		return lookupVariants(sourceType, sourceName, npcIds, npcIds == null || npcIds.isEmpty());
+	}
+
+	/**
+	 * Resolves known variants plus broad candidates when older kills in the aggregate have no ID.
+	 * Plans are deduplicated before any futures are created and fall back to bounded name lookup if
+	 * the source contains an unreasonable number of distinct variants.
+	 */
+	public CompletableFuture<WikiDropTable> lookupVariants(String sourceType, String sourceName,
+		Set<Integer> npcIds, boolean hasUnknownNpcVariants)
+	{
+		if (!enabled || !canLookup(sourceType, sourceName))
+		{
+			return lookup(sourceType, sourceName, (Integer) null);
+		}
+
+		Map<LookupKey, WikiSourceResolution> plans = new LinkedHashMap<>();
+		Map<String, Boolean> broadPages = new LinkedHashMap<>();
+		if (hasUnknownNpcVariants || npcIds == null || npcIds.isEmpty())
+		{
+			addNameCandidates(sourceType, sourceName, plans, broadPages);
+		}
+
+		if (npcIds != null)
+		{
+			for (Integer npcId : npcIds)
+			{
+				WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+				if (!broadPages.containsKey(normalizePage(resolution.getPageTitle())))
+				{
+					plans.putIfAbsent(keyFor(resolution), resolution);
+				}
+				if (plans.size() > MAX_LOOKUPS_PER_SOURCE)
+				{
+					plans.clear();
+					broadPages.clear();
+					addNameCandidates(sourceType, sourceName, plans, broadPages);
+					break;
+				}
+			}
+		}
+		return executePlans(new ArrayList<>(plans.values()));
+	}
+
+	private static void addNameCandidates(String sourceType, String sourceName,
+		Map<LookupKey, WikiSourceResolution> plans, Map<String, Boolean> broadPages)
+	{
+		for (WikiSourceResolution candidate :
+			WikiSourceResolver.resolveNameCandidates(sourceType, sourceName))
+		{
+			plans.putIfAbsent(keyFor(candidate), candidate);
+			broadPages.put(normalizePage(candidate.getPageTitle()), Boolean.TRUE);
+		}
+	}
+
+	private CompletableFuture<WikiDropTable> executePlans(List<WikiSourceResolution> plans)
+	{
+		if (plans.isEmpty())
+		{
+			return failedLookup("No Wiki lookup plan is available for this source");
+		}
+		Map<String, Boolean> pages = new LinkedHashMap<>();
+		List<CompletableFuture<LookupResult>> attempts = new ArrayList<>(plans.size());
+		for (WikiSourceResolution plan : plans)
+		{
+			pages.put(normalizePage(plan.getPageTitle()), Boolean.TRUE);
+			attempts.add(lookup(plan).handle(LookupResult::new));
+		}
+		boolean labelPages = pages.size() > 1;
+		CompletableFuture<?>[] futures = attempts.toArray(new CompletableFuture<?>[0]);
+		return CompletableFuture.allOf(futures).thenApply(ignored ->
+		{
+			List<WikiDropTable> tables = new ArrayList<>(attempts.size());
+			Throwable firstFailure = null;
+			for (int index = 0; index < attempts.size(); index++)
+			{
+				LookupResult attempt = attempts.get(index).join();
+				if (attempt.table != null)
+				{
+					tables.add(labelPages ? attempt.table.withContextPrefix(
+						plans.get(index).getPageTitle()) : attempt.table);
+				}
+				else if (firstFailure == null)
+				{
+					firstFailure = attempt.error;
+				}
+			}
+			if (tables.isEmpty())
+			{
+				throw new CompletionException(firstFailure == null
+					? new IOException("All Wiki lookups failed") : firstFailure);
+			}
+			return WikiDropTable.merge(tables);
+		});
+	}
+
+	private static LookupKey keyFor(WikiSourceResolution resolution)
+	{
+		return new LookupKey(resolution.getPageTitle(), resolution.getNpcId(),
+			resolution.getTableContext());
+	}
+
+	private static String normalizePage(String pageTitle)
+	{
+		return pageTitle.trim().toLowerCase(Locale.ENGLISH);
 	}
 
 	private static CompletableFuture<WikiDropTable> failedLookup(String message)
@@ -259,28 +378,44 @@ public final class WikiDropRateService
 		{
 			throw new IllegalStateException("Wiki lookup is disabled or not permitted for this loot source");
 		}
-		String lookupName = resolveLookupName(sourceName);
-		Integer lookupNpcId = lookupName.equals(sourceName) ? validNpcId(npcId) : null;
-		String section = CLUE_SOURCE.matcher(sourceName.trim()).matches() ? "Rewards" : "Drops";
+		WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+		String lookupName = resolution.getPageTitle();
+		Integer lookupNpcId = resolution.getNpcId();
 		return buildUrl(lookupName, lookupNpcId).newBuilder()
-			.fragment(section)
+			.fragment(resolution.getSection())
 			.build()
 			.toString();
 	}
 
+	public String getDropTableUrlForVariants(String sourceType, String sourceName, Set<Integer> npcIds)
+	{
+		if (npcIds == null || npcIds.isEmpty())
+		{
+			return getDropTableUrl(sourceType, sourceName, (Integer) null);
+		}
+		Integer representative = npcIds.iterator().next();
+		WikiSourceResolution first = WikiSourceResolver.resolve(sourceType, sourceName, representative);
+		boolean mixedContexts = false;
+		for (Integer npcId : npcIds)
+		{
+			WikiSourceResolution candidate = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+			if (!first.getPageTitle().equals(candidate.getPageTitle()))
+			{
+				return getDropTableUrl(sourceType, sourceName, (Integer) null);
+			}
+			mixedContexts |= !first.getSection().equals(candidate.getSection())
+				|| !Objects.equals(first.getTableContext(), candidate.getTableContext());
+		}
+		if (mixedContexts)
+		{
+			return buildUrl(first.getPageTitle(), null).toString();
+		}
+		return getDropTableUrl(sourceType, sourceName, representative);
+	}
+
 	static String resolveLookupName(String sourceName)
 	{
-		// RuneLite's recorded source is not always the Wiki page that owns the
-		// drop table. Clue rewards similarly live on reward-casket pages.
-		String trimmedSourceName = sourceName.trim();
-		String aliasedSourceName = WikiSourceAliases.resolve(sourceName);
-		if (!aliasedSourceName.equals(sourceName))
-		{
-			return aliasedSourceName;
-		}
-
-		Matcher clue = CLUE_SOURCE.matcher(trimmedSourceName);
-		return clue.matches() ? "Reward casket (" + clue.group(1).toLowerCase(Locale.ENGLISH) + ")" : sourceName;
+		return WikiSourceResolver.resolve("NPC", sourceName, null).getPageTitle();
 	}
 
 	private synchronized void enqueue(PendingLookup lookup)
@@ -288,6 +423,11 @@ public final class WikiDropRateService
 		if (!enabled || lookup.generation != cacheGeneration.get())
 		{
 			lookup.result.completeExceptionally(new CancellationException("Wiki drop-rate request invalidated"));
+			return;
+		}
+		if (pendingLookups.size() >= MAX_PENDING_REQUESTS)
+		{
+			lookup.result.completeExceptionally(new IOException("Wiki drop-rate request queue is full"));
 			return;
 		}
 		pendingLookups.add(lookup);
@@ -352,11 +492,30 @@ public final class WikiDropRateService
 
 					WikiDropTable table = WikiDropTableParser.parse(
 						new ByteArrayInputStream(readBoundedBody(body)));
+					if (npcId != null || lookup.tableContext != null)
+					{
+						String selectedContext = lookup.tableContext;
+						if (!table.hasContext(selectedContext))
+						{
+							selectedContext = contextFromFragment(closedResponse.request().url().fragment());
+						}
+						if (table.hasContext(selectedContext))
+						{
+							table = table.selectContext(selectedContext);
+						}
+					}
 					// NPC IDs disambiguate variants when possible. Historical records may
 					// lack an ID, and some Wiki pages only resolve through their name.
 					if (table.isEmpty() && npcId != null)
 					{
 						request(lookup, null);
+						return;
+					}
+					if (table.isEmpty())
+					{
+						lookup.result.completeExceptionally(
+							new IOException("OSRS Wiki page has no resolvable drop table"));
+						finishRequest();
 						return;
 					}
 					lookup.result.complete(table);
@@ -416,20 +575,22 @@ public final class WikiDropRateService
 		return builder.addQueryParameter("name", sourceName).build();
 	}
 
-	private static Integer validNpcId(Integer npcId)
+	private static String contextFromFragment(String fragment)
 	{
-		return npcId != null && npcId >= 0 ? npcId : null;
+		return fragment == null ? null : fragment.replace('_', ' ').trim();
 	}
 
 	private static final class LookupKey
 	{
 		private final String sourceName;
-		private final Integer npcId;
+		private final String variant;
 
-		private LookupKey(String sourceName, Integer npcId)
+		private LookupKey(String sourceName, Integer npcId, String tableContext)
 		{
 			this.sourceName = sourceName.trim().toLowerCase(Locale.ENGLISH);
-			this.npcId = npcId;
+			this.variant = tableContext != null && !tableContext.trim().isEmpty()
+				? "context:" + tableContext.trim().toLowerCase(Locale.ENGLISH)
+				: npcId == null ? "" : "id:" + npcId;
 		}
 
 		@Override
@@ -444,18 +605,18 @@ public final class WikiDropRateService
 				return false;
 			}
 			LookupKey key = (LookupKey) other;
-			return sourceName.equals(key.sourceName) && Objects.equals(npcId, key.npcId);
+			return sourceName.equals(key.sourceName) && variant.equals(key.variant);
 		}
 
 		@Override
 		public int hashCode()
 		{
-			return 31 * sourceName.hashCode() + Objects.hashCode(npcId);
+			return 31 * sourceName.hashCode() + variant.hashCode();
 		}
 
 		private String persistentKey()
 		{
-			return sourceName + '\0' + (npcId == null ? "" : npcId);
+			return sourceName + '\0' + variant;
 		}
 	}
 
@@ -463,16 +624,30 @@ public final class WikiDropRateService
 	{
 		private final String sourceName;
 		private final Integer npcId;
+		private final String tableContext;
 		private final long generation;
 		private final CompletableFuture<WikiDropTable> result;
 
-		private PendingLookup(String sourceName, Integer npcId, long generation,
+		private PendingLookup(String sourceName, Integer npcId, String tableContext, long generation,
 			CompletableFuture<WikiDropTable> result)
 		{
 			this.sourceName = sourceName;
 			this.npcId = npcId;
+			this.tableContext = tableContext;
 			this.generation = generation;
 			this.result = result;
+		}
+	}
+
+	private static final class LookupResult
+	{
+		private final WikiDropTable table;
+		private final Throwable error;
+
+		private LookupResult(WikiDropTable table, Throwable error)
+		{
+			this.table = table;
+			this.error = error;
 		}
 	}
 }

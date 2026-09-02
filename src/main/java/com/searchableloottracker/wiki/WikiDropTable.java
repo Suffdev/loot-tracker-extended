@@ -9,19 +9,22 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Immutable drop-rate index for one source. It also owns the tooltip policy:
- * show an unambiguous rate, identify a single Rare/Gem table alternative, and
- * defer genuinely multi-rate cases to the Wiki page.
+ * Immutable drop-rate index for one source. It owns the tooltip policy: independently named
+ * tables can be shown together, while several alternatives inside one table remain delegated to
+ * the full Wiki page where their conditions can be explained safely.
  */
 public final class WikiDropTable
 {
 	private static final int MAX_CACHED_ITEMS = 10_000;
 	private static final int MAX_CACHED_RATES_PER_ITEM = 100;
+	private static final int MAX_TOOLTIP_RATES = 4;
 	private static final String MULTIPLE_RATES = "Multiple rates - right-click to open Wiki";
+	private static final String ADDITIONAL_RATES = "Additional rates - right-click to open Wiki";
 	private static final Pattern SCROLL_BOX = Pattern.compile(
 		"^scroll box \\((beginner|easy|medium|hard|elite|master)\\)$");
 	private final Map<String, List<WikiDropRate>> ratesByItem;
@@ -43,29 +46,158 @@ public final class WikiDropTable
 		}
 		if (rates.size() == 1)
 		{
-			WikiDropRate rate = rates.get(0);
-			return Collections.singletonList(rate.format(rate.isRareGemTable()));
+			return Collections.singletonList(rates.get(0).format());
 		}
-		if (rates.size() == 2)
+
+		// Multiple rows within the same table are usually quantity/condition alternatives rather
+		// than independent shared tables. Keep deferring those cases to the full Wiki page.
+		Map<String, Integer> ratesPerTable = new HashMap<>();
+		for (WikiDropRate rate : rates)
 		{
-			WikiDropRate first = rates.get(0);
-			WikiDropRate second = rates.get(1);
-			if (first.isRareGemTable() != second.isRareGemTable())
+			String table = rate.getTableIdentity();
+			int count = ratesPerTable.merge(table, 1, Integer::sum);
+			if (count > 1)
 			{
-				WikiDropRate main = first.isRareGemTable() ? second : first;
-				WikiDropRate rareGem = first.isRareGemTable() ? first : second;
-				List<String> lines = new ArrayList<>(2);
-				lines.add(main.format(false));
-				lines.add(rareGem.format(true));
-				return Collections.unmodifiableList(lines);
+				return Collections.singletonList(MULTIPLE_RATES);
 			}
 		}
-		return Collections.singletonList(MULTIPLE_RATES);
+
+		List<String> lines = new ArrayList<>(Math.min(rates.size(), MAX_TOOLTIP_RATES) + 1);
+		for (int index = 0; index < rates.size() && index < MAX_TOOLTIP_RATES; index++)
+		{
+			lines.add(rates.get(index).format());
+		}
+		if (rates.size() > MAX_TOOLTIP_RATES)
+		{
+			lines.add(ADDITIONAL_RATES);
+		}
+		return Collections.unmodifiableList(lines);
 	}
 
 	public boolean isEmpty()
 	{
 		return ratesByItem.isEmpty();
+	}
+
+	static WikiDropTable merge(List<WikiDropTable> tables)
+	{
+		Map<String, List<WikiDropRate>> merged = new LinkedHashMap<>();
+		for (WikiDropTable table : tables)
+		{
+			for (Map.Entry<String, List<WikiDropRate>> entry : table.ratesByItem.entrySet())
+			{
+				List<WikiDropRate> rates = merged.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>());
+				for (WikiDropRate rate : entry.getValue())
+				{
+					if (!rates.contains(rate))
+					{
+						rates.add(rate);
+					}
+				}
+			}
+		}
+		return new WikiDropTable(merged);
+	}
+
+	WikiDropTable withContextPrefix(String prefix)
+	{
+		Map<String, List<WikiDropRate>> prefixed = new LinkedHashMap<>();
+		for (Map.Entry<String, List<WikiDropRate>> entry : ratesByItem.entrySet())
+		{
+			List<WikiDropRate> rates = new ArrayList<>(entry.getValue().size());
+			for (WikiDropRate rate : entry.getValue())
+			{
+				rates.add(rate.withContextPrefix(prefix));
+			}
+			prefixed.put(entry.getKey(), rates);
+		}
+		return new WikiDropTable(prefixed);
+	}
+
+	/**
+	 * Selects one variant section while retaining shared conditional tables. If the Wiki markup does
+	 * not contain the requested label, the unfiltered table is returned instead of hiding rates.
+	 */
+	WikiDropTable selectContext(String requestedContext)
+	{
+		if (requestedContext == null || requestedContext.trim().isEmpty())
+		{
+			return this;
+		}
+		if (!hasContext(requestedContext))
+		{
+			return this;
+		}
+
+		Map<String, List<WikiDropRate>> selected = new LinkedHashMap<>();
+		for (Map.Entry<String, List<WikiDropRate>> entry : ratesByItem.entrySet())
+		{
+			List<WikiDropRate> retained = new ArrayList<>();
+			for (WikiDropRate rate : entry.getValue())
+			{
+				if (contextsMatch(rate.getContextLabel(), requestedContext)
+					|| (rate.getContextLabel().isEmpty()
+						&& isSharedTable(rate.getTableLabel())))
+				{
+					retained.add(rate);
+				}
+			}
+			if (!retained.isEmpty())
+			{
+				selected.put(entry.getKey(), retained);
+			}
+		}
+		return new WikiDropTable(selected);
+	}
+
+	boolean hasContext(String context)
+	{
+		return context != null && ratesByItem.values().stream()
+			.flatMap(List::stream)
+			.anyMatch(rate -> contextsMatch(rate.getContextLabel(), context));
+	}
+
+	private static boolean contextsMatch(String available, String requested)
+	{
+		String normalizedAvailable = normalizeContext(available);
+		String normalizedRequested = normalizeContext(requested);
+		return !normalizedAvailable.isEmpty() && !normalizedRequested.isEmpty()
+			&& (normalizedAvailable.equals(normalizedRequested)
+				|| containsContext(normalizedAvailable, normalizedRequested)
+				|| containsContext(normalizedRequested, normalizedAvailable));
+	}
+
+	private static boolean containsContext(String container, String candidate)
+	{
+		int start = container.indexOf(candidate);
+		while (start >= 0)
+		{
+			int end = start + candidate.length();
+			boolean startsAtBoundary = start == 0
+				|| !Character.isLetterOrDigit(container.charAt(start - 1));
+			boolean endsAtBoundary = end == container.length()
+				|| !Character.isLetterOrDigit(container.charAt(end));
+			if (startsAtBoundary && endsAtBoundary)
+			{
+				return true;
+			}
+			start = container.indexOf(candidate, start + 1);
+		}
+		return false;
+	}
+
+	private static boolean isSharedTable(String label)
+	{
+		String normalized = label.toLowerCase(Locale.ENGLISH);
+		return normalized.equals("rare drop table")
+			|| normalized.equals("gem drop table")
+			|| normalized.equals("rare/gem table");
+	}
+
+	private static String normalizeContext(String context)
+	{
+		return context == null ? "" : context.trim().toLowerCase(Locale.ENGLISH)
+			.replace('_', ' ').replaceAll("\\s+", " ");
 	}
 
 	void write(DataOutput output) throws IOException

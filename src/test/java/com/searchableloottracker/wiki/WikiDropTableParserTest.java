@@ -8,6 +8,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -100,6 +101,64 @@ public class WikiDropTableParserTest
 	}
 
 	@Test
+	public void displaysIndependentNamedDropTablesAndCanSelectAVariant()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<h2>Drops</h2><h3>Weapons</h3>"
+				+ dropTable("Rune sword", "1", "1/10")
+				+ "<h3>Rare drop table</h3>"
+				+ dropTable("Rune sword", "2", "1/100")
+				+ "<h2>Wilderness Slayer Cave drops</h2><h3>Weapons</h3>"
+				+ dropTable("Rune sword", "3", "1/5"));
+
+		assertEquals(Arrays.asList(
+			"1/10 (x1)",
+			"1/100 (x2) (Rare Drop Table)",
+			"1/5 (x3) (Wilderness Slayer Cave)"), table.getTooltipLines("Rune sword"));
+		assertEquals(Arrays.asList(
+			"1/100 (x2) (Rare Drop Table)",
+			"1/5 (x3) (Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Rune sword"));
+	}
+
+	@Test
+	public void preservesAbyssalDemonVariantAboveCategoryHeading()
+	{
+		WikiDropTable table = WikiDropTableParser.parse(
+			"<h2>Drops</h2>"
+				+ "<h3>Standard and Catacombs of Kourend</h3>"
+				+ "<h4>Weapons and armour</h4>"
+				+ dropTable("Steel battleaxe", "1", "3/128")
+				+ "<h4>Rare drop table</h4>"
+				+ dropTable("Rune 2h sword", "1", "1/1,000")
+				+ "<h3>Wilderness Slayer Cave</h3>"
+				+ "<h4>Weapons and armour</h4>"
+				+ dropTable("Steel battleaxe", "1", "3/68")
+				+ "<h4>Rare drop table</h4>"
+				+ dropTable("Rune 2h sword", "1", "1/500"));
+
+		assertEquals(Arrays.asList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)",
+			"3/68 (x1) (Wilderness Slayer Cave)"),
+			table.getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList("3/68 (x1) (Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)"),
+			table.selectContext("Standard").getTooltipLines("Steel battleaxe"));
+		assertEquals(Collections.singletonList(
+			"3/128 (x1) (Standard and Catacombs of Kourend)"),
+			table.selectContext("Catacombs of Kourend").getTooltipLines("Steel battleaxe"));
+		assertEquals(Arrays.asList(
+			"1/1,000 (x1) (Rare Drop Table - Standard and Catacombs of Kourend)",
+			"1/500 (x1) (Rare Drop Table - Wilderness Slayer Cave)"),
+			table.getTooltipLines("Rune 2h sword"));
+		assertEquals(Collections.singletonList(
+			"1/500 (x1) (Rare Drop Table - Wilderness Slayer Cave)"),
+			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Rune 2h sword"));
+	}
+
+	@Test
 	public void buildsNameOnlyAndNpcIdLookupUrls()
 	{
 		HttpUrl nameOnly = WikiDropRateService.buildUrl("Gnome woman", null);
@@ -119,11 +178,43 @@ public class WikiDropTableParserTest
 		assertEquals("Rewards", clueRewards.fragment());
 		assertNull(clueRewards.queryParameter("id"));
 
+		HttpUrl barrowsRewards = HttpUrl.parse(service.getDropTableUrl(
+			"EVENT", "Barrows", null));
+		assertEquals("Chest (Barrows)", barrowsRewards.queryParameter("name"));
+		assertEquals("Rewards", barrowsRewards.fragment());
+		assertNull(barrowsRewards.queryParameter("id"));
+
 		HttpUrl grotesqueGuardians = HttpUrl.parse(service.getDropTableUrl("NPC", "Dusk", 7888));
 		assertEquals("Grotesque Guardians", grotesqueGuardians.queryParameter("name"));
 		assertEquals("Drops", grotesqueGuardians.fragment());
 		assertNull(grotesqueGuardians.queryParameter("id"));
-		assertEquals("Grotesque Guardians", WikiSourceAliases.resolve(" dusk "));
-		assertEquals("Vorkath", WikiSourceAliases.resolve("Vorkath"));
+		assertEquals("Grotesque Guardians",
+			WikiSourceResolver.resolve("NPC", " dusk ", 7888).getPageTitle());
+		assertEquals("Vorkath", WikiSourceResolver.resolve("NPC", "Vorkath", 8061).getPageTitle());
+
+		WikiSourceResolution wilderness = WikiSourceResolver.resolve(
+			"NPC", "Greater demon", 7871);
+		assertEquals("Greater demon", wilderness.getPageTitle());
+		assertEquals(Integer.valueOf(7871), wilderness.getNpcId());
+		assertEquals("Wilderness Slayer Cave", wilderness.getTableContext());
+
+		WikiSourceResolution waterbirth = WikiSourceResolver.resolve("NPC", "Dagannoth", 2259);
+		assertEquals("Dagannoth (Waterbirth Island)", waterbirth.getPageTitle());
+		assertEquals("Level 88", waterbirth.getTableContext());
+		assertNull(waterbirth.getNpcId());
+		assertEquals(2, WikiSourceResolver.resolveNameCandidates(
+			"NPC", "Dagannoth").size());
+
+		HttpUrl mixedWaterbirth = HttpUrl.parse(service.getDropTableUrlForVariants(
+			"NPC", "Dagannoth", new LinkedHashSet<>(Arrays.asList(2259, 3185))));
+		assertEquals("Dagannoth (Waterbirth Island)", mixedWaterbirth.queryParameter("name"));
+		assertNull(mixedWaterbirth.fragment());
+	}
+
+	private static String dropTable(String item, String quantity, String rarity)
+	{
+		return "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>" + item + "</td><td>" + quantity + "</td><td>" + rarity
+			+ "</td></tr></table>";
 	}
 }

@@ -1,6 +1,7 @@
 package com.searchableloottracker;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import com.searchableloottracker.model.LootItem;
@@ -18,7 +19,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -46,7 +46,8 @@ final class LootDataService
 	static final String HISTORY_KEY_PREFIX = "history_";
 	static final String IMPORT_VERSION_KEY = "historyImportVersion";
 	static final String IMPORT_VERSION = "1";
-	private static final int STORED_FORMAT_VERSION = 1;
+	private static final int STORED_FORMAT_VERSION = 3;
+	private static final int MAX_NPC_VARIANTS = 64;
 	private static final String NPC_IDS_KEY = "observedNpcIds";
 	private static final Type NPC_ID_MAP_TYPE = new TypeToken<Map<String, Integer>>() { }.getType();
 
@@ -112,7 +113,15 @@ final class LootDataService
 			for (LoadedLoot entry : retained)
 			{
 				LootSourceId sourceId = entry.source.getId();
-				loaded.put(sourceId, entry.source);
+				MutableLootSource existing = loaded.get(sourceId);
+				if (existing == null)
+				{
+					loaded.put(sourceId, entry.source);
+				}
+				else
+				{
+					existing.merge(entry.source);
+				}
 				loadedKeys.put(entry.key, sourceId);
 			}
 		}
@@ -187,10 +196,25 @@ final class LootDataService
 			event.getName(), type, event.getAmount(), receivedAt);
 		if ("NPC".equals(type))
 		{
-			Integer npcId = observedNpcIds.get(normalizeName(event.getName()));
-			source.setNpcId(npcId);
-			sessionSource.setNpcId(npcId);
-			occurrence.setNpcId(npcId);
+			Integer npcId = extractNpcId(event.getMetadata());
+			boolean exactNpcId = npcId != null;
+			if (npcId == null)
+			{
+				npcId = observedNpcIds.get(normalizeName(event.getName()));
+			}
+			if (npcId != null)
+			{
+				source.addNpcId(npcId);
+				sessionSource.addNpcId(npcId);
+				occurrence.addNpcId(npcId);
+				rememberNpcId(event.getName(), npcId);
+			}
+			if (!exactNpcId)
+			{
+				source.markUnknownNpcVariant();
+				sessionSource.markUnknownNpcVariant();
+				occurrence.markUnknownNpcVariant();
+			}
 		}
 		source.count = saturatedAdd(source.count, event.getAmount());
 		sessionSource.count = saturatedAdd(sessionSource.count, event.getAmount());
@@ -267,23 +291,17 @@ final class LootDataService
 		}
 
 		String normalizedName = normalizeName(name);
-		if (!observedNpcIds.containsKey(normalizedName))
-		{
-			observedNpcIds.put(normalizedName, npcId);
-			if (profileConfiguration.getActiveProfileKey() != null)
-			{
-				profileConfiguration.setActive(
-					SearchableLootTrackerConfig.GROUP, NPC_IDS_KEY, gson.toJson(observedNpcIds));
-			}
-		}
-
-		Integer observedNpcId = observedNpcIds.get(normalizedName);
+		rememberNpcId(name, npcId);
 		MutableLootSource historySource = findSource(sources, name, normalizedName);
 		MutableLootSource sessionSource = findSource(sessionSources, name, normalizedName);
-		LootSource historySnapshot = historySource != null && historySource.setNpcId(observedNpcId)
+		LootSource historySnapshot = historySource != null && historySource.addNpcId(npcId)
 			? snapshot(historySource) : null;
-		LootSource sessionSnapshot = sessionSource != null && sessionSource.setNpcId(observedNpcId)
+		LootSource sessionSnapshot = sessionSource != null && sessionSource.addNpcId(npcId)
 			? snapshot(sessionSource) : null;
+		if (historySnapshot != null)
+		{
+			persist(historySource);
+		}
 		if (historySnapshot == null && sessionSnapshot == null)
 		{
 			return null;
@@ -433,6 +451,8 @@ final class LootDataService
 		stored.name = source.name;
 		stored.kills = source.count;
 		stored.last = source.lastReceived;
+		stored.npcIds = source.npcIds.stream().mapToInt(Integer::intValue).toArray();
+		stored.hasUnknownNpcVariants = source.hasUnknownNpcVariants;
 		stored.drops = new int[source.quantities.size() * 2];
 		int index = 0;
 		for (Map.Entry<Integer, Integer> item : source.quantities.entrySet())
@@ -448,8 +468,7 @@ final class LootDataService
 	{
 		// Hashing the normalized composite identity produces stable, path-safe config keys and
 		// avoids exposing arbitrary source names in configuration-key syntax.
-		String identity = sourceId.getType().toUpperCase(Locale.ENGLISH) + '\0'
-			+ sourceId.getName().trim().toLowerCase(Locale.ENGLISH);
+		String identity = sourceId.getCanonicalType() + '\0' + sourceId.getCanonicalName();
 		try
 		{
 			byte[] digest = MessageDigest.getInstance("SHA-256")
@@ -482,14 +501,16 @@ final class LootDataService
 			items.add(new LootItem(itemId, details.name, entry.getValue(), details.gePrice, details.haPrice));
 		}
 		source.cachedSnapshot = new LootSource(
-			source.name, source.type, source.count, source.lastReceived, items, source.npcId);
+			source.name, source.type, source.count, source.lastReceived, items, source.npcIds,
+			source.hasUnknownNpcVariants);
 		return source.cachedSnapshot;
 	}
 
 	private MutableLootSource parseStoredLoot(String key, String json)
 	{
-		// StoredLoot remains compatible with the built-in JSON imported by version zero while
-		// Extended writes its own explicit format version. Invalid entries are skipped independently
+		// StoredLoot remains compatible with built-in imports and older Extended records. Version
+		// three distinguishes known IDs from incomplete historical variant coverage.
+		// Invalid entries are skipped independently
 		// so one corrupt source does not hide the rest.
 		try
 		{
@@ -502,9 +523,26 @@ final class LootDataService
 			}
 			MutableLootSource source = new MutableLootSource(stored.name, stored.type, stored.kills,
 				stored.last == null ? Instant.EPOCH : stored.last);
-			if ("NPC".equals(stored.type))
+			if ("NPC".equals(source.type))
 			{
-				source.npcId = observedNpcIds.get(normalizeName(stored.name));
+				source.hasUnknownNpcVariants = stored.version < STORED_FORMAT_VERSION
+					|| stored.hasUnknownNpcVariants;
+				if (stored.npcIds != null)
+				{
+					if (stored.npcIds.length > MAX_NPC_VARIANTS)
+					{
+						source.hasUnknownNpcVariants = true;
+					}
+					for (int index = 0;
+						index < stored.npcIds.length && index < MAX_NPC_VARIANTS; index++)
+					{
+						int npcId = stored.npcIds[index];
+						if (npcId >= 0)
+						{
+							source.npcIds.add(npcId);
+						}
+					}
+				}
 			}
 			source.persistedDropCount = stored.drops.length / 2;
 			for (int index = 0; index < stored.drops.length; index += 2)
@@ -605,6 +643,50 @@ final class LootDataService
 		return name.trim().toLowerCase(Locale.ENGLISH);
 	}
 
+	private Integer extractNpcId(Object metadata)
+	{
+		if (metadata instanceof Number)
+		{
+			int npcId = ((Number) metadata).intValue();
+			return npcId >= 0 ? npcId : null;
+		}
+		if (metadata == null)
+		{
+			return null;
+		}
+		try
+		{
+			JsonElement tree = gson.toJsonTree(metadata);
+			if (tree.isJsonObject())
+			{
+				JsonElement id = tree.getAsJsonObject().get("id");
+				if (id != null && id.isJsonPrimitive() && id.getAsJsonPrimitive().isNumber())
+				{
+					int npcId = id.getAsInt();
+					return npcId >= 0 ? npcId : null;
+				}
+			}
+		}
+		catch (RuntimeException ignored)
+		{
+			// Metadata is optional enrichment; malformed plugin metadata must not drop loot.
+		}
+		return null;
+	}
+
+	private void rememberNpcId(String name, int npcId)
+	{
+		String normalizedName = normalizeName(name);
+		Integer previous = observedNpcIds.put(normalizedName, npcId);
+		// Exact IDs now live with owned history. Keep this legacy fallback cheap: persist only its
+		// first observation, while the in-memory value may follow the most recently looted variant.
+		if (previous == null && profileConfiguration.getActiveProfileKey() != null)
+		{
+			profileConfiguration.setActive(
+				SearchableLootTrackerConfig.GROUP, NPC_IDS_KEY, gson.toJson(observedNpcIds));
+		}
+	}
+
 	private ItemDetails loadItemDetails(int itemId)
 	{
 		ItemComposition composition = itemManager.getItemComposition(itemId);
@@ -697,14 +779,15 @@ final class LootDataService
 		private int count;
 		private Instant lastReceived;
 		private int persistedDropCount;
-		private Integer npcId;
+		private boolean hasUnknownNpcVariants;
+		private final Set<Integer> npcIds = new LinkedHashSet<>();
 		private final Map<Integer, Integer> quantities = new LinkedHashMap<>();
 		private LootSource cachedSnapshot;
 
 		private MutableLootSource(String name, String type, int count, Instant lastReceived)
 		{
-			this.name = name;
-			this.type = type;
+			this.name = name.trim();
+			this.type = type.trim().toUpperCase(Locale.ENGLISH);
 			this.count = count;
 			this.lastReceived = lastReceived;
 		}
@@ -714,15 +797,48 @@ final class LootDataService
 			quantities.merge(itemId, quantity, LootDataService::saturatedAdd);
 		}
 
-		private boolean setNpcId(Integer newNpcId)
+		private boolean addNpcId(Integer newNpcId)
 		{
-			if (Objects.equals(npcId, newNpcId))
+			if (newNpcId == null || newNpcId < 0 || npcIds.contains(newNpcId))
 			{
 				return false;
 			}
-			npcId = newNpcId;
+			if (npcIds.size() >= MAX_NPC_VARIANTS)
+			{
+				return markUnknownNpcVariant();
+			}
+			npcIds.add(newNpcId);
 			invalidateSnapshot();
 			return true;
+		}
+
+		private boolean markUnknownNpcVariant()
+		{
+			if (hasUnknownNpcVariants)
+			{
+				return false;
+			}
+			hasUnknownNpcVariants = true;
+			invalidateSnapshot();
+			return true;
+		}
+
+		private void merge(MutableLootSource other)
+		{
+			count = saturatedAdd(count, other.count);
+			lastReceived = lastReceived.isAfter(other.lastReceived)
+				? lastReceived : other.lastReceived;
+			persistedDropCount = saturatedAdd(persistedDropCount, other.persistedDropCount);
+			hasUnknownNpcVariants |= other.hasUnknownNpcVariants;
+			for (Integer npcId : other.npcIds)
+			{
+				addNpcId(npcId);
+			}
+			for (Map.Entry<Integer, Integer> item : other.quantities.entrySet())
+			{
+				add(item.getKey(), item.getValue());
+			}
+			invalidateSnapshot();
 		}
 
 		private void invalidateSnapshot()
@@ -765,12 +881,14 @@ final class LootDataService
 	@SuppressWarnings("unused")
 	private static final class StoredLoot
 	{
-		// Imported core records omit version and deserialize as zero; newly-owned records use one.
+		// Imported core records omit version and deserialize as zero; newly-owned records use three.
 		private int version;
 		private String type;
 		private String name;
 		private int kills;
 		private Instant last;
 		private int[] drops;
+		private int[] npcIds;
+		private boolean hasUnknownNpcVariants;
 	}
 }
