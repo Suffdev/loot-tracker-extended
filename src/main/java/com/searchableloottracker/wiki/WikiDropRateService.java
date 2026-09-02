@@ -48,6 +48,7 @@ public final class WikiDropRateService
 	private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 	private final OkHttpClient httpClient;
 	private final WikiDropTableDiskCache diskCache;
+	private final WikiSourceResolver sourceResolver;
 	// A source card can request several item tooltips at once. Coalescing here
 	// prevents each item from downloading and parsing the same NPC page.
 	private final Map<LookupKey, CompletableFuture<WikiDropTable>> inFlight = new ConcurrentHashMap<>();
@@ -68,17 +69,19 @@ public final class WikiDropRateService
 	private volatile boolean enabled;
 
 	@Inject
-	public WikiDropRateService(OkHttpClient httpClient)
+	public WikiDropRateService(OkHttpClient httpClient, WikiSourceResolver sourceResolver)
 	{
 		this(httpClient, new WikiDropTableDiskCache(
 			new File(new File(RuneLite.RUNELITE_DIR, "loot-tracker-extended"), "wiki-cache"),
-			MAX_DISK_CACHE_ENTRIES));
+			MAX_DISK_CACHE_ENTRIES), sourceResolver);
 	}
 
-	WikiDropRateService(OkHttpClient httpClient, WikiDropTableDiskCache diskCache)
+	WikiDropRateService(OkHttpClient httpClient, WikiDropTableDiskCache diskCache,
+		WikiSourceResolver sourceResolver)
 	{
 		this.httpClient = httpClient;
 		this.diskCache = diskCache;
+		this.sourceResolver = sourceResolver;
 	}
 
 	public CompletableFuture<WikiDropTable> lookup(String sourceType, String sourceName, Integer npcId)
@@ -91,7 +94,7 @@ public final class WikiDropRateService
 		{
 			return failedLookup("Wiki lookup is not permitted for this loot source");
 		}
-		WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+		WikiSourceResolution resolution = sourceResolver.resolve(sourceType, sourceName, npcId);
 		return lookup(resolution);
 	}
 
@@ -203,7 +206,7 @@ public final class WikiDropRateService
 		{
 			for (Integer npcId : npcIds)
 			{
-				WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+				WikiSourceResolution resolution = sourceResolver.resolve(sourceType, sourceName, npcId);
 				if (!broadPages.containsKey(normalizePage(resolution.getPageTitle())))
 				{
 					plans.putIfAbsent(keyFor(resolution), resolution);
@@ -220,11 +223,11 @@ public final class WikiDropRateService
 		return executePlans(new ArrayList<>(plans.values()));
 	}
 
-	private static void addNameCandidates(String sourceType, String sourceName,
+	private void addNameCandidates(String sourceType, String sourceName,
 		Map<LookupKey, WikiSourceResolution> plans, Map<String, Boolean> broadPages)
 	{
 		for (WikiSourceResolution candidate :
-			WikiSourceResolver.resolveNameCandidates(sourceType, sourceName))
+			sourceResolver.resolveNameCandidates(sourceType, sourceName))
 		{
 			plans.putIfAbsent(keyFor(candidate), candidate);
 			broadPages.put(normalizePage(candidate.getPageTitle()), Boolean.TRUE);
@@ -378,7 +381,7 @@ public final class WikiDropRateService
 		{
 			throw new IllegalStateException("Wiki lookup is disabled or not permitted for this loot source");
 		}
-		WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+		WikiSourceResolution resolution = sourceResolver.resolve(sourceType, sourceName, npcId);
 		String lookupName = resolution.getPageTitle();
 		Integer lookupNpcId = resolution.getNpcId();
 		return buildUrl(lookupName, lookupNpcId).newBuilder()
@@ -394,11 +397,11 @@ public final class WikiDropRateService
 			return getDropTableUrl(sourceType, sourceName, (Integer) null);
 		}
 		Integer representative = npcIds.iterator().next();
-		WikiSourceResolution first = WikiSourceResolver.resolve(sourceType, sourceName, representative);
+		WikiSourceResolution first = sourceResolver.resolve(sourceType, sourceName, representative);
 		boolean mixedContexts = false;
 		for (Integer npcId : npcIds)
 		{
-			WikiSourceResolution candidate = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+			WikiSourceResolution candidate = sourceResolver.resolve(sourceType, sourceName, npcId);
 			if (!first.getPageTitle().equals(candidate.getPageTitle()))
 			{
 				return getDropTableUrl(sourceType, sourceName, (Integer) null);
@@ -411,11 +414,6 @@ public final class WikiDropRateService
 			return buildUrl(first.getPageTitle(), null).toString();
 		}
 		return getDropTableUrl(sourceType, sourceName, representative);
-	}
-
-	static String resolveLookupName(String sourceName)
-	{
-		return WikiSourceResolver.resolve("NPC", sourceName, null).getPageTitle();
 	}
 
 	private synchronized void enqueue(PendingLookup lookup)
@@ -491,7 +489,7 @@ public final class WikiDropRateService
 					}
 
 					WikiDropTable table = WikiDropTableParser.parse(
-						new ByteArrayInputStream(readBoundedBody(body)));
+						new ByteArrayInputStream(readBoundedBody(body)), sourceResolver);
 					if (npcId != null || lookup.tableContext != null)
 					{
 						String selectedContext = lookup.tableContext;
