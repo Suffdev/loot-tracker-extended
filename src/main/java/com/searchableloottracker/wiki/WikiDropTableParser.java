@@ -30,10 +30,20 @@ final class WikiDropTableParser
 
 	static WikiDropTable parse(InputStream html) throws IOException
 	{
-		return parse(Jsoup.parse(html, null, ""));
+		return parse(Jsoup.parse(html, null, ""), null);
+	}
+
+	static WikiDropTable parse(InputStream html, WikiSourceResolver sourceResolver) throws IOException
+	{
+		return parse(Jsoup.parse(html, null, ""), sourceResolver);
 	}
 
 	private static WikiDropTable parse(Document document)
+	{
+		return parse(document, null);
+	}
+
+	private static WikiDropTable parse(Document document, WikiSourceResolver sourceResolver)
 	{
 		Map<String, List<WikiDropRate>> collectedRates = new LinkedHashMap<>();
 		String levelTwo = "";
@@ -60,7 +70,7 @@ final class WikiDropTableParser
 			{
 				parseTable(element, collectedRates,
 					tableLabel(levelTwo, levelThree, levelFour),
-					contextLabel(levelTwo, levelThree, levelFour));
+					contextLabel(levelTwo, levelThree, levelFour, sourceResolver));
 			}
 		}
 		return new WikiDropTable(collectedRates);
@@ -210,21 +220,22 @@ final class WikiDropTableParser
 	 * Catacombs of Kourend"; retaining both levels prevents distinct variant rates from collapsing
 	 * into one apparently ambiguous table.
 	 */
-	private static String contextLabel(String levelTwo, String levelThree, String levelFour)
+	private static String contextLabel(String levelTwo, String levelThree, String levelFour,
+		WikiSourceResolver sourceResolver)
 	{
-		String major = variantLabel(levelTwo);
+		String major = variantLabel(levelTwo, sourceResolver);
 		if (!major.isEmpty() && tableLabel(levelTwo, "", "").isEmpty())
 		{
 			return major;
 		}
 
-		String secondary = variantLabel(levelThree);
+		String secondary = variantLabel(levelThree, sourceResolver);
 		if (!secondary.isEmpty() && tableLabel("", levelThree, "").isEmpty())
 		{
 			return secondary;
 		}
 
-		String tertiary = variantLabel(levelFour);
+		String tertiary = variantLabel(levelFour, sourceResolver);
 		if (!tertiary.isEmpty() && tableLabel("", "", levelFour).isEmpty())
 		{
 			return tertiary;
@@ -238,7 +249,7 @@ final class WikiDropTableParser
 			.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
 	}
 
-	private static String variantLabel(String heading)
+	private static String variantLabel(String heading, WikiSourceResolver sourceResolver)
 	{
 		String candidate = stripDropSuffix(heading);
 		String normalized = candidate.toLowerCase(Locale.ENGLISH);
@@ -246,7 +257,8 @@ final class WikiDropTableParser
 			|| normalized.contains("standard")
 			|| normalized.contains("wilderness slayer cave")
 			|| normalized.contains("catacombs of kourend");
-		return structuralVariant || WikiSourceResolver.isRegisteredContext(candidate)
+		return structuralVariant
+			|| (sourceResolver != null && sourceResolver.isRegisteredContext(candidate))
 			? candidate : "";
 	}
 

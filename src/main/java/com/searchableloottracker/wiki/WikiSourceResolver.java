@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.inject.Inject;
 
 /**
  * Maps RuneLite source identities to the Wiki page that owns their drops. Most sources pass
@@ -22,19 +23,21 @@ final class WikiSourceResolver
 	private static final String OVERRIDES_RESOURCE = "/wiki-source-overrides.json";
 	private static final Pattern CLUE_SOURCE = Pattern.compile(
 		"(?i)^clue scroll \\((beginner|easy|medium|hard|elite|master)\\)$");
-	private static final List<OverrideEntry> OVERRIDES = loadOverrides();
+	private final List<OverrideEntry> overrides;
 
-	private WikiSourceResolver()
+	@Inject
+	WikiSourceResolver(Gson gson)
 	{
+		overrides = loadOverrides(gson);
 	}
 
-	static WikiSourceResolution resolve(String sourceType, String sourceName, Integer npcId)
+	WikiSourceResolution resolve(String sourceType, String sourceName, Integer npcId)
 	{
 		String trimmedName = sourceName.trim();
 		String normalizedType = sourceType.trim().toUpperCase(Locale.ENGLISH);
 		Integer validNpcId = npcId != null && npcId >= 0 ? npcId : null;
 		OverrideEntry best = null;
-		for (OverrideEntry candidate : OVERRIDES)
+		for (OverrideEntry candidate : overrides)
 		{
 			if (candidate.matches(normalizedType, trimmedName, validNpcId)
 				&& (best == null || candidate.isMoreSpecificThan(best)))
@@ -62,14 +65,14 @@ final class WikiSourceResolver
 	 * Returns every plausible owner page for ID-less history. Exact-ID overrides may opt into this
 	 * list when RuneLite groups several independently documented monsters under one display name.
 	 */
-	static List<WikiSourceResolution> resolveNameCandidates(String sourceType, String sourceName)
+	List<WikiSourceResolution> resolveNameCandidates(String sourceType, String sourceName)
 	{
 		String trimmedName = sourceName.trim();
 		String normalizedType = sourceType.trim().toUpperCase(Locale.ENGLISH);
 		Map<String, WikiSourceResolution> candidates = new LinkedHashMap<>();
 		WikiSourceResolution primary = resolve(sourceType, sourceName, null);
 		candidates.put(primary.getPageTitle().toLowerCase(Locale.ENGLISH), primary);
-		for (OverrideEntry entry : OVERRIDES)
+		for (OverrideEntry entry : overrides)
 		{
 			if (entry.includeForNameLookup && entry.matchesSource(normalizedType, trimmedName))
 			{
@@ -82,13 +85,13 @@ final class WikiSourceResolver
 		return Collections.unmodifiableList(new ArrayList<>(candidates.values()));
 	}
 
-	static boolean isRegisteredContext(String heading)
+	boolean isRegisteredContext(String heading)
 	{
 		if (heading == null || heading.trim().isEmpty())
 		{
 			return false;
 		}
-		for (OverrideEntry entry : OVERRIDES)
+		for (OverrideEntry entry : overrides)
 		{
 			if (entry.tableContext != null && entry.tableContext.equalsIgnoreCase(heading.trim()))
 			{
@@ -98,7 +101,7 @@ final class WikiSourceResolver
 		return false;
 	}
 
-	private static List<OverrideEntry> loadOverrides()
+	private static List<OverrideEntry> loadOverrides(Gson gson)
 	{
 		try (InputStream input = WikiSourceResolver.class.getResourceAsStream(OVERRIDES_RESOURCE))
 		{
@@ -106,7 +109,7 @@ final class WikiSourceResolver
 			{
 				throw new IllegalStateException("Missing " + OVERRIDES_RESOURCE);
 			}
-			OverrideEntry[] entries = new Gson().fromJson(
+			OverrideEntry[] entries = gson.fromJson(
 				new InputStreamReader(input, StandardCharsets.UTF_8), OverrideEntry[].class);
 			List<OverrideEntry> loaded = new ArrayList<>();
 			if (entries != null)

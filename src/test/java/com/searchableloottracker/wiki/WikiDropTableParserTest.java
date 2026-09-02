@@ -1,5 +1,6 @@
 package com.searchableloottracker.wiki;
 
+import com.google.gson.Gson;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import org.junit.Test;
@@ -170,7 +171,8 @@ public class WikiDropTableParserTest
 		assertEquals("66", withId.queryParameter("id"));
 		assertEquals("Gnome", withId.queryParameter("name"));
 
-		WikiDropRateService service = new WikiDropRateService(new OkHttpClient());
+		WikiSourceResolver sourceResolver = new WikiSourceResolver(new Gson());
+		WikiDropRateService service = new WikiDropRateService(new OkHttpClient(), sourceResolver);
 		service.setEnabled(true);
 		HttpUrl clueRewards = HttpUrl.parse(service.getDropTableUrl(
 			"EVENT", "Clue Scroll (Medium)", null));
@@ -189,20 +191,20 @@ public class WikiDropTableParserTest
 		assertEquals("Drops", grotesqueGuardians.fragment());
 		assertNull(grotesqueGuardians.queryParameter("id"));
 		assertEquals("Grotesque Guardians",
-			WikiSourceResolver.resolve("NPC", " dusk ", 7888).getPageTitle());
-		assertEquals("Vorkath", WikiSourceResolver.resolve("NPC", "Vorkath", 8061).getPageTitle());
+			sourceResolver.resolve("NPC", " dusk ", 7888).getPageTitle());
+		assertEquals("Vorkath", sourceResolver.resolve("NPC", "Vorkath", 8061).getPageTitle());
 
-		WikiSourceResolution wilderness = WikiSourceResolver.resolve(
+		WikiSourceResolution wilderness = sourceResolver.resolve(
 			"NPC", "Greater demon", 7871);
 		assertEquals("Greater demon", wilderness.getPageTitle());
 		assertEquals(Integer.valueOf(7871), wilderness.getNpcId());
 		assertEquals("Wilderness Slayer Cave", wilderness.getTableContext());
 
-		WikiSourceResolution waterbirth = WikiSourceResolver.resolve("NPC", "Dagannoth", 2259);
+		WikiSourceResolution waterbirth = sourceResolver.resolve("NPC", "Dagannoth", 2259);
 		assertEquals("Dagannoth (Waterbirth Island)", waterbirth.getPageTitle());
 		assertEquals("Level 88", waterbirth.getTableContext());
 		assertNull(waterbirth.getNpcId());
-		assertEquals(2, WikiSourceResolver.resolveNameCandidates(
+		assertEquals(2, sourceResolver.resolveNameCandidates(
 			"NPC", "Dagannoth").size());
 
 		HttpUrl mixedWaterbirth = HttpUrl.parse(service.getDropTableUrlForVariants(

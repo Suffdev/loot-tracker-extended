@@ -1,5 +1,6 @@
 package com.searchableloottracker.wiki;
 
+import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -417,7 +418,8 @@ public class WikiDropRateServiceTest
 	private WikiDropRateService disabledService(Interceptor interceptor)
 	{
 		client = new OkHttpClient.Builder().addInterceptor(interceptor).build();
-		return new WikiDropRateService(client, new WikiDropTableDiskCache(null, 0));
+		return new WikiDropRateService(client, new WikiDropTableDiskCache(null, 0),
+			new WikiSourceResolver(new Gson()));
 	}
 
 	private static Response response(Interceptor.Chain chain, int code, String body)
