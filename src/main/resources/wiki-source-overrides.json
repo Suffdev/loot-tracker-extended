@@ -1,5 +1,12 @@
 [
   {
+    "sourceType": "EVENT",
+    "sourceName": "Barrows",
+    "pageTitle": "Chest (Barrows)",
+    "section": "Rewards",
+    "retainNpcId": false
+  },
+  {
     "sourceType": "NPC",
     "sourceName": "Dusk",
     "pageTitle": "Grotesque Guardians",

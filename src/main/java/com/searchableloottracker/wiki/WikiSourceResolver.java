@@ -82,6 +82,22 @@ final class WikiSourceResolver
 		return Collections.unmodifiableList(new ArrayList<>(candidates.values()));
 	}
 
+	static boolean isRegisteredContext(String heading)
+	{
+		if (heading == null || heading.trim().isEmpty())
+		{
+			return false;
+		}
+		for (OverrideEntry entry : OVERRIDES)
+		{
+			if (entry.tableContext != null && entry.tableContext.equalsIgnoreCase(heading.trim()))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static List<OverrideEntry> loadOverrides()
 	{
 		try (InputStream input = WikiSourceResolver.class.getResourceAsStream(OVERRIDES_RESOURCE))

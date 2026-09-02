@@ -41,7 +41,8 @@ public class LootDataServicePersistenceTest
 		String extendedKey = LootDataService.historyKey(new LootSourceId("NPC", "Gnome"));
 		String imported = configuration.get(SearchableLootTrackerConfig.GROUP, PROFILE, extendedKey);
 		assertNotNull(imported);
-		assertTrue(imported.contains("\"version\":2"));
+		assertTrue(imported.contains("\"version\":3"));
+		assertTrue(imported.contains("\"hasUnknownNpcVariants\":true"));
 		assertEquals(CORE_JSON, configuration.get(LootDataService.LOOT_TRACKER_GROUP, PROFILE, CORE_KEY));
 		assertEquals(LootDataService.IMPORT_VERSION, configuration.get(
 			SearchableLootTrackerConfig.GROUP, PROFILE, LootDataService.IMPORT_VERSION_KEY));
@@ -142,6 +143,76 @@ public class LootDataServicePersistenceTest
 		assertEquals(1, service.snapshot().size());
 		assertEquals(new LinkedHashSet<>(Arrays.asList(7871, 7872)),
 			service.snapshot().get(0).getNpcIds());
+		assertFalse(service.snapshot().get(0).hasUnknownNpcVariants());
+	}
+
+	@Test
+	public void legacyHistoryRetainsUnknownCoverageAfterAnExactKillAndReload()
+	{
+		FakeProfileConfiguration configuration = new FakeProfileConfiguration(PROFILE);
+		putExtendedLoot(configuration, PROFILE, "NPC", "Dagannoth", 5,
+			"2026-08-23T12:00:00Z", "[]");
+		LootDataService service = service(configuration);
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		service.add(new LootReceived("Dagannoth", 88, LootRecordType.NPC,
+			java.util.Collections.emptyList(), 1, 2259));
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		assertEquals(1, service.snapshot().size());
+		assertEquals(6, service.snapshot().get(0).getCount());
+		assertEquals(new LinkedHashSet<>(java.util.Collections.singletonList(2259)),
+			service.snapshot().get(0).getNpcIds());
+		assertTrue(service.snapshot().get(0).hasUnknownNpcVariants());
+	}
+
+	@Test
+	public void oversizedPersistedNpcIdsAreBoundedAndMarkedIncomplete()
+	{
+		FakeProfileConfiguration configuration = new FakeProfileConfiguration(PROFILE);
+		StringBuilder npcIds = new StringBuilder("[");
+		for (int npcId = 1; npcId <= 100; npcId++)
+		{
+			if (npcId > 1)
+			{
+				npcIds.append(',');
+			}
+			npcIds.append(npcId);
+		}
+		npcIds.append(']');
+		String key = LootDataService.historyKey(new LootSourceId("NPC", "Guard"));
+		String json = "{\"version\":3,\"type\":\"NPC\",\"name\":\"Guard\",\"kills\":1,"
+			+ "\"last\":\"2026-08-23T12:00:00Z\",\"drops\":[],\"npcIds\":" + npcIds + '}';
+		configuration.values.put(configuration.key(
+			SearchableLootTrackerConfig.GROUP, PROFILE, key), json);
+		configuration.values.put(configuration.key(SearchableLootTrackerConfig.GROUP, PROFILE,
+			LootDataService.IMPORT_VERSION_KEY), LootDataService.IMPORT_VERSION);
+
+		LootDataService service = service(configuration);
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		assertEquals(64, service.snapshot().get(0).getNpcIds().size());
+		assertTrue(service.snapshot().get(0).hasUnknownNpcVariants());
+	}
+
+	@Test
+	public void canonicalIdentityMergesLiveCasingAndResetsUsingSnapshotId()
+	{
+		FakeProfileConfiguration configuration = new FakeProfileConfiguration(PROFILE);
+		putExtendedLoot(configuration, PROFILE, "npc", "gnome", 7,
+			"2026-08-23T12:00:00Z", "[]");
+		LootDataService service = service(configuration);
+		service.reloadFromActiveProfile(true, 0, 0);
+
+		service.add(new LootReceived(" Gnome ", 1, LootRecordType.NPC,
+			java.util.Collections.emptyList(), 1, null));
+
+		assertEquals(1, service.snapshot().size());
+		assertEquals(8, service.snapshot().get(0).getCount());
+		service.resetSource(service.snapshot().get(0).getId());
+		assertTrue(service.snapshot().isEmpty());
+		service.reloadFromActiveProfile(true, 0, 0);
+		assertTrue(service.snapshot().isEmpty());
 	}
 
 	@Test
@@ -244,9 +315,11 @@ public class LootDataServicePersistenceTest
 	@Test
 	public void historyKeysAreStableAcrossCaseAndWhitespace()
 	{
-		assertEquals(
-			LootDataService.historyKey(new LootSourceId("NPC", "Gnome")),
-			LootDataService.historyKey(new LootSourceId("npc", "  GNOME  ")));
+		LootSourceId first = new LootSourceId("NPC", "Gnome");
+		LootSourceId second = new LootSourceId("npc", "  GNOME  ");
+		assertEquals(first, second);
+		assertEquals(first.hashCode(), second.hashCode());
+		assertEquals(LootDataService.historyKey(first), LootDataService.historyKey(second));
 	}
 
 	private static LootDataService service(FakeProfileConfiguration configuration)

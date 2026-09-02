@@ -1173,7 +1173,8 @@ final class SearchableLootTrackerPanel extends PluginPanel
 				// state are ignored rather than restoring stale tooltip content.
 				long requestGeneration = wikiTooltipGeneration;
 				imageLabel.setToolTipText(buildTooltip(item, Collections.singletonList("Loading...")));
-				wikiDropRateService.lookupVariants(source.getType(), source.getName(), source.getNpcIds())
+				wikiDropRateService.lookupVariants(source.getType(), source.getName(), source.getNpcIds(),
+					source.hasUnknownNpcVariants())
 					.whenComplete((table, error) -> SwingUtilities.invokeLater(() ->
 					{
 						if (requestGeneration != wikiTooltipGeneration)

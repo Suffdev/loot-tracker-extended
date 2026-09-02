@@ -23,6 +23,7 @@ public final class LootSource
 	private final String type;
 	private final LootSourceId id;
 	private final Set<Integer> npcIds;
+	private final boolean hasUnknownNpcVariants;
 	private final int count;
 	private final Instant lastReceived;
 	private final List<LootItem> itemsByGe;
@@ -50,11 +51,18 @@ public final class LootSource
 	public LootSource(String name, String type, int count, Instant lastReceived, List<LootItem> items,
 		Set<Integer> npcIds)
 	{
+		this(name, type, count, lastReceived, items, npcIds, false);
+	}
+
+	public LootSource(String name, String type, int count, Instant lastReceived, List<LootItem> items,
+		Set<Integer> npcIds, boolean hasUnknownNpcVariants)
+	{
 		this.name = Objects.requireNonNull(name);
 		this.normalizedName = name.trim().toLowerCase(Locale.ENGLISH);
 		this.type = Objects.requireNonNull(type);
 		this.id = new LootSourceId(type, name);
 		this.npcIds = Collections.unmodifiableSet(new TreeSet<>(npcIds));
+		this.hasUnknownNpcVariants = hasUnknownNpcVariants;
 		this.count = count;
 		this.lastReceived = Objects.requireNonNull(lastReceived);
 		List<LootItem> geSorted = new ArrayList<>(items);
@@ -97,12 +105,17 @@ public final class LootSource
 	}
 
 	/**
-	 * Returns every concrete NPC variant observed for this name-grouped source. An empty set means
-	 * that the record predates variant tracking or was imported from core Loot Tracker history.
+	 * Returns every concrete NPC variant observed for this name-grouped source. Unknown historical
+	 * coverage is represented separately because known IDs can later be added to an older aggregate.
 	 */
 	public Set<Integer> getNpcIds()
 	{
 		return npcIds;
+	}
+
+	public boolean hasUnknownNpcVariants()
+	{
+		return hasUnknownNpcVariants;
 	}
 
 	public int getCount()

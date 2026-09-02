@@ -17,6 +17,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.inject.Inject;
@@ -40,6 +41,8 @@ public final class WikiDropRateService
 	private static final String USER_AGENT =
 		"Loot Tracker Extended (https://github.com/Suffdev/loot-tracker-extended)";
 	private static final int MAX_CONCURRENT_REQUESTS = 2;
+	private static final int MAX_LOOKUPS_PER_SOURCE = 16;
+	private static final int MAX_PENDING_REQUESTS = 64;
 	private static final int MAX_CACHE_ENTRIES = 256;
 	private static final int MAX_DISK_CACHE_ENTRIES = 1024;
 	private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -173,61 +176,111 @@ public final class WikiDropRateService
 	public CompletableFuture<WikiDropTable> lookupVariants(String sourceType, String sourceName,
 		Set<Integer> npcIds)
 	{
-		if (npcIds == null || npcIds.isEmpty())
+		return lookupVariants(sourceType, sourceName, npcIds, npcIds == null || npcIds.isEmpty());
+	}
+
+	/**
+	 * Resolves known variants plus broad candidates when older kills in the aggregate have no ID.
+	 * Plans are deduplicated before any futures are created and fall back to bounded name lookup if
+	 * the source contains an unreasonable number of distinct variants.
+	 */
+	public CompletableFuture<WikiDropTable> lookupVariants(String sourceType, String sourceName,
+		Set<Integer> npcIds, boolean hasUnknownNpcVariants)
+	{
+		if (!enabled || !canLookup(sourceType, sourceName))
 		{
-			if (!enabled || !canLookup(sourceType, sourceName))
-			{
-				return lookup(sourceType, sourceName, (Integer) null);
-			}
-			List<WikiSourceResolution> candidates =
-				WikiSourceResolver.resolveNameCandidates(sourceType, sourceName);
-			if (candidates.size() == 1)
-			{
-				return lookup(candidates.get(0));
-			}
-			List<CompletableFuture<WikiDropTable>> candidateLookups =
-				new ArrayList<>(candidates.size());
-			for (WikiSourceResolution candidate : candidates)
-			{
-				candidateLookups.add(lookup(candidate));
-			}
-			return mergeLookups(candidateLookups, candidates);
+			return lookup(sourceType, sourceName, (Integer) null);
 		}
-		if (npcIds.size() == 1)
+
+		Map<LookupKey, WikiSourceResolution> plans = new LinkedHashMap<>();
+		Map<String, Boolean> broadPages = new LinkedHashMap<>();
+		if (hasUnknownNpcVariants || npcIds == null || npcIds.isEmpty())
 		{
-			return lookup(sourceType, sourceName, npcIds.iterator().next());
+			addNameCandidates(sourceType, sourceName, plans, broadPages);
 		}
-		List<CompletableFuture<WikiDropTable>> lookups = new ArrayList<>(npcIds.size());
-		for (Integer npcId : npcIds)
+
+		if (npcIds != null)
 		{
-			lookups.add(lookup(sourceType, sourceName, npcId));
+			for (Integer npcId : npcIds)
+			{
+				WikiSourceResolution resolution = WikiSourceResolver.resolve(sourceType, sourceName, npcId);
+				if (!broadPages.containsKey(normalizePage(resolution.getPageTitle())))
+				{
+					plans.putIfAbsent(keyFor(resolution), resolution);
+				}
+				if (plans.size() > MAX_LOOKUPS_PER_SOURCE)
+				{
+					plans.clear();
+					broadPages.clear();
+					addNameCandidates(sourceType, sourceName, plans, broadPages);
+					break;
+				}
+			}
 		}
-		CompletableFuture<?>[] futures = lookups.toArray(new CompletableFuture<?>[0]);
+		return executePlans(new ArrayList<>(plans.values()));
+	}
+
+	private static void addNameCandidates(String sourceType, String sourceName,
+		Map<LookupKey, WikiSourceResolution> plans, Map<String, Boolean> broadPages)
+	{
+		for (WikiSourceResolution candidate :
+			WikiSourceResolver.resolveNameCandidates(sourceType, sourceName))
+		{
+			plans.putIfAbsent(keyFor(candidate), candidate);
+			broadPages.put(normalizePage(candidate.getPageTitle()), Boolean.TRUE);
+		}
+	}
+
+	private CompletableFuture<WikiDropTable> executePlans(List<WikiSourceResolution> plans)
+	{
+		if (plans.isEmpty())
+		{
+			return failedLookup("No Wiki lookup plan is available for this source");
+		}
+		Map<String, Boolean> pages = new LinkedHashMap<>();
+		List<CompletableFuture<LookupResult>> attempts = new ArrayList<>(plans.size());
+		for (WikiSourceResolution plan : plans)
+		{
+			pages.put(normalizePage(plan.getPageTitle()), Boolean.TRUE);
+			attempts.add(lookup(plan).handle(LookupResult::new));
+		}
+		boolean labelPages = pages.size() > 1;
+		CompletableFuture<?>[] futures = attempts.toArray(new CompletableFuture<?>[0]);
 		return CompletableFuture.allOf(futures).thenApply(ignored ->
 		{
-			List<WikiDropTable> tables = new ArrayList<>(lookups.size());
-			for (CompletableFuture<WikiDropTable> lookup : lookups)
+			List<WikiDropTable> tables = new ArrayList<>(attempts.size());
+			Throwable firstFailure = null;
+			for (int index = 0; index < attempts.size(); index++)
 			{
-				tables.add(lookup.join());
+				LookupResult attempt = attempts.get(index).join();
+				if (attempt.table != null)
+				{
+					tables.add(labelPages ? attempt.table.withContextPrefix(
+						plans.get(index).getPageTitle()) : attempt.table);
+				}
+				else if (firstFailure == null)
+				{
+					firstFailure = attempt.error;
+				}
+			}
+			if (tables.isEmpty())
+			{
+				throw new CompletionException(firstFailure == null
+					? new IOException("All Wiki lookups failed") : firstFailure);
 			}
 			return WikiDropTable.merge(tables);
 		});
 	}
 
-	private static CompletableFuture<WikiDropTable> mergeLookups(
-		List<CompletableFuture<WikiDropTable>> lookups, List<WikiSourceResolution> resolutions)
+	private static LookupKey keyFor(WikiSourceResolution resolution)
 	{
-		CompletableFuture<?>[] futures = lookups.toArray(new CompletableFuture<?>[0]);
-		return CompletableFuture.allOf(futures).thenApply(ignored ->
-		{
-			List<WikiDropTable> tables = new ArrayList<>(lookups.size());
-			for (int index = 0; index < lookups.size(); index++)
-			{
-				tables.add(lookups.get(index).join().withContextPrefix(
-					resolutions.get(index).getPageTitle()));
-			}
-			return WikiDropTable.merge(tables);
-		});
+		return new LookupKey(resolution.getPageTitle(), resolution.getNpcId(),
+			resolution.getTableContext());
+	}
+
+	private static String normalizePage(String pageTitle)
+	{
+		return pageTitle.trim().toLowerCase(Locale.ENGLISH);
 	}
 
 	private static CompletableFuture<WikiDropTable> failedLookup(String message)
@@ -372,6 +425,11 @@ public final class WikiDropRateService
 			lookup.result.completeExceptionally(new CancellationException("Wiki drop-rate request invalidated"));
 			return;
 		}
+		if (pendingLookups.size() >= MAX_PENDING_REQUESTS)
+		{
+			lookup.result.completeExceptionally(new IOException("Wiki drop-rate request queue is full"));
+			return;
+		}
 		pendingLookups.add(lookup);
 		startPendingRequests();
 	}
@@ -441,8 +499,10 @@ public final class WikiDropRateService
 						{
 							selectedContext = contextFromFragment(closedResponse.request().url().fragment());
 						}
-						table = table.hasContext(selectedContext)
-							? table.selectContext(selectedContext) : table.selectBaseContext();
+						if (table.hasContext(selectedContext))
+						{
+							table = table.selectContext(selectedContext);
+						}
 					}
 					// NPC IDs disambiguate variants when possible. Historical records may
 					// lack an ID, and some Wiki pages only resolve through their name.
@@ -576,6 +636,18 @@ public final class WikiDropRateService
 			this.tableContext = tableContext;
 			this.generation = generation;
 			this.result = result;
+		}
+	}
+
+	private static final class LookupResult
+	{
+		private final WikiDropTable table;
+		private final Throwable error;
+
+		private LookupResult(WikiDropTable table, Throwable error)
+		{
+			this.table = table;
+			this.error = error;
 		}
 	}
 }

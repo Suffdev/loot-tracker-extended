@@ -2,9 +2,10 @@ package com.searchableloottracker.wiki;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.LinkedHashMap;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -211,20 +212,20 @@ final class WikiDropTableParser
 	 */
 	private static String contextLabel(String levelTwo, String levelThree, String levelFour)
 	{
-		String major = stripDropSuffix(levelTwo);
-		if (!isGenericHeading(major) && tableLabel(levelTwo, "", "").isEmpty())
+		String major = variantLabel(levelTwo);
+		if (!major.isEmpty() && tableLabel(levelTwo, "", "").isEmpty())
 		{
 			return major;
 		}
 
-		String secondary = stripDropSuffix(levelThree);
-		if (!isGenericHeading(secondary) && tableLabel("", levelThree, "").isEmpty())
+		String secondary = variantLabel(levelThree);
+		if (!secondary.isEmpty() && tableLabel("", levelThree, "").isEmpty())
 		{
 			return secondary;
 		}
 
-		String tertiary = stripDropSuffix(levelFour);
-		if (!isGenericHeading(tertiary) && tableLabel("", "", levelFour).isEmpty())
+		String tertiary = variantLabel(levelFour);
+		if (!tertiary.isEmpty() && tableLabel("", "", levelFour).isEmpty())
 		{
 			return tertiary;
 		}
@@ -237,44 +238,16 @@ final class WikiDropTableParser
 			.replaceFirst("(?i)\\s+(?:drops|rewards)$", "").trim();
 	}
 
-	private static boolean isGenericHeading(String heading)
+	private static String variantLabel(String heading)
 	{
-		switch (heading.toLowerCase())
-		{
-			case "":
-			case "drops":
-			case "drop table":
-			case "rewards":
-			case "100%":
-			case "always":
-			case "pre-roll":
-			case "main drop":
-			case "weapons":
-			case "armour":
-			case "weapons and armour":
-			case "weapons and ammunition":
-			case "equipment":
-			case "runes":
-			case "runes and ammunition":
-			case "ammunition":
-			case "herbs":
-			case "seeds":
-			case "food":
-			case "potions":
-			case "resources":
-			case "ores and bars":
-			case "gems":
-			case "materials":
-			case "other":
-			case "miscellaneous":
-			case "tertiary":
-			case "unique":
-			case "uniques":
-			case "guaranteed":
-				return true;
-			default:
-				return false;
-		}
+		String candidate = stripDropSuffix(heading);
+		String normalized = candidate.toLowerCase(Locale.ENGLISH);
+		boolean structuralVariant = normalized.startsWith("level ")
+			|| normalized.contains("standard")
+			|| normalized.contains("wilderness slayer cave")
+			|| normalized.contains("catacombs of kourend");
+		return structuralVariant || WikiSourceResolver.isRegisteredContext(candidate)
+			? candidate : "";
 	}
 
 	private static int parsePositiveInt(String value, int fallback)

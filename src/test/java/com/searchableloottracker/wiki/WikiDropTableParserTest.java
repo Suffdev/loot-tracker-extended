@@ -119,10 +119,6 @@ public class WikiDropTableParserTest
 			"1/100 (x2) (Rare Drop Table)",
 			"1/5 (x3) (Wilderness Slayer Cave)"),
 			table.selectContext("Wilderness Slayer Cave").getTooltipLines("Rune sword"));
-		assertEquals(Arrays.asList(
-			"1/10 (x1)",
-			"1/100 (x2) (Rare Drop Table)"),
-			table.selectBaseContext().getTooltipLines("Rune sword"));
 	}
 
 	@Test
@@ -153,9 +149,6 @@ public class WikiDropTableParserTest
 		assertEquals(Collections.singletonList(
 			"3/128 (x1) (Standard and Catacombs of Kourend)"),
 			table.selectContext("Catacombs of Kourend").getTooltipLines("Steel battleaxe"));
-		assertEquals(Collections.singletonList(
-			"3/128 (x1) (Standard and Catacombs of Kourend)"),
-			table.selectBaseContext().getTooltipLines("Steel battleaxe"));
 		assertEquals(Arrays.asList(
 			"1/1,000 (x1) (Rare Drop Table - Standard and Catacombs of Kourend)",
 			"1/500 (x1) (Rare Drop Table - Wilderness Slayer Cave)"),
@@ -184,6 +177,12 @@ public class WikiDropTableParserTest
 		assertEquals("Reward casket (medium)", clueRewards.queryParameter("name"));
 		assertEquals("Rewards", clueRewards.fragment());
 		assertNull(clueRewards.queryParameter("id"));
+
+		HttpUrl barrowsRewards = HttpUrl.parse(service.getDropTableUrl(
+			"EVENT", "Barrows", null));
+		assertEquals("Chest (Barrows)", barrowsRewards.queryParameter("name"));
+		assertEquals("Rewards", barrowsRewards.fragment());
+		assertNull(barrowsRewards.queryParameter("id"));
 
 		HttpUrl grotesqueGuardians = HttpUrl.parse(service.getDropTableUrl("NPC", "Dusk", 7888));
 		assertEquals("Grotesque Guardians", grotesqueGuardians.queryParameter("name"));

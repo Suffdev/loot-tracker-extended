@@ -157,27 +157,6 @@ public final class WikiDropTable
 			.anyMatch(rate -> contextsMatch(rate.getContextLabel(), context));
 	}
 
-	WikiDropTable selectBaseContext()
-	{
-		Map<String, List<WikiDropRate>> selected = new LinkedHashMap<>();
-		for (Map.Entry<String, List<WikiDropRate>> entry : ratesByItem.entrySet())
-		{
-			List<WikiDropRate> retained = new ArrayList<>();
-			for (WikiDropRate rate : entry.getValue())
-			{
-				if (rate.getContextLabel().isEmpty() || isBaseContext(rate.getContextLabel()))
-				{
-					retained.add(rate);
-				}
-			}
-			if (!retained.isEmpty())
-			{
-				selected.put(entry.getKey(), retained);
-			}
-		}
-		return selected.isEmpty() ? this : new WikiDropTable(selected);
-	}
-
 	private static boolean contextsMatch(String available, String requested)
 	{
 		String normalizedAvailable = normalizeContext(available);
@@ -205,11 +184,6 @@ public final class WikiDropTable
 			start = container.indexOf(candidate, start + 1);
 		}
 		return false;
-	}
-
-	private static boolean isBaseContext(String context)
-	{
-		return normalizeContext(context).contains("standard");
 	}
 
 	private static boolean isSharedTable(String label)

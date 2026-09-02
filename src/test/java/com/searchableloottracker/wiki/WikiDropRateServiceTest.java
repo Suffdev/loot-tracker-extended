@@ -128,6 +128,81 @@ public class WikiDropRateServiceTest
 	}
 
 	@Test
+	public void unknownCoverageKeepsNameCandidatesAfterAnExactIdAppears() throws Exception
+	{
+		AtomicInteger requests = new AtomicInteger();
+		WikiDropRateService service = service(chain ->
+		{
+			requests.incrementAndGet();
+			String name = chain.request().url().queryParameter("name");
+			return response(chain, 200, "Dagannoth (Waterbirth Island)".equals(name)
+				? WATERBIRTH_TABLES : DROP_TABLE);
+		});
+
+		WikiDropTable table = service.lookupVariants("NPC", "Dagannoth",
+			new LinkedHashSet<>(Arrays.asList(2259)), true).get(5, TimeUnit.SECONDS);
+
+		assertEquals(2, requests.get());
+		assertEquals(3, table.getTooltipLines("Coins").size());
+	}
+
+	@Test
+	public void ordinaryHeadingsSurviveAnExactNpcLookup() throws Exception
+	{
+		String categoryTables = "<h2>Drops</h2><h3>Talismans</h3>"
+			+ dropTable("Air talisman", "1", "1/10")
+			+ "<h3>Charms</h3>" + dropTable("Gold charm", "1", "1/20");
+		WikiDropRateService service = service(chain -> response(chain, 200, categoryTables));
+
+		WikiDropTable table = service.lookup("NPC", "Dagannoth Prime", 2266)
+			.get(5, TimeUnit.SECONDS);
+
+		assertEquals(Arrays.asList("1/10 (x1)"), table.getTooltipLines("Air talisman"));
+		assertEquals(Arrays.asList("1/20 (x1)"), table.getTooltipLines("Gold charm"));
+	}
+
+	@Test
+	public void variantBatchReturnsSuccessfulTablesWhenOneLookupFails() throws Exception
+	{
+		WikiDropRateService service = service(chain ->
+		{
+			if ("1".equals(chain.request().url().queryParameter("id")))
+			{
+				throw new IOException("first variant failed");
+			}
+			return response(chain, 200, DROP_TABLE);
+		});
+
+		WikiDropTable table = service.lookupVariants("NPC", "Guard",
+			new LinkedHashSet<>(Arrays.asList(1, 2)), false).get(5, TimeUnit.SECONDS);
+
+		assertEquals(Arrays.asList("1/2 (x10)"), table.getTooltipLines("Coins"));
+	}
+
+	@Test
+	public void excessiveVariantBatchFallsBackToOneNameLookup() throws Exception
+	{
+		AtomicInteger requests = new AtomicInteger();
+		List<String> ids = new ArrayList<>();
+		WikiDropRateService service = service(chain ->
+		{
+			requests.incrementAndGet();
+			ids.add(chain.request().url().queryParameter("id"));
+			return response(chain, 200, DROP_TABLE);
+		});
+		LinkedHashSet<Integer> variants = new LinkedHashSet<>();
+		for (int npcId = 1; npcId <= 100; npcId++)
+		{
+			variants.add(npcId);
+		}
+
+		service.lookupVariants("NPC", "Guard", variants, false).get(5, TimeUnit.SECONDS);
+
+		assertEquals(1, requests.get());
+		assertEquals(Arrays.asList((String) null), ids);
+	}
+
+	@Test
 	public void failedLookupCanBeRetried() throws Exception
 	{
 		AtomicInteger requests = new AtomicInteger();
@@ -323,6 +398,13 @@ public class WikiDropRateServiceTest
 			body.append('x');
 		}
 		return body.toString();
+	}
+
+	private static String dropTable(String item, String quantity, String rarity)
+	{
+		return "<table class='item-drops'><tr><th>Item</th><th>Quantity</th><th>Rarity</th></tr>"
+			+ "<tr><td>" + item + "</td><td>" + quantity + "</td><td>" + rarity
+			+ "</td></tr></table>";
 	}
 
 	private WikiDropRateService service(Interceptor interceptor)
