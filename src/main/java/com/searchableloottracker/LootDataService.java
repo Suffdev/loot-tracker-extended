@@ -855,10 +855,10 @@ final class LootDataService
 	private static final class ItemDetails
 	{
 		private final String name;
-		private final int gePrice;
+		private final long gePrice;
 		private final int haPrice;
 
-		private ItemDetails(String name, int gePrice, int haPrice)
+		private ItemDetails(String name, long gePrice, int haPrice)
 		{
 			this.name = name;
 			this.gePrice = gePrice;

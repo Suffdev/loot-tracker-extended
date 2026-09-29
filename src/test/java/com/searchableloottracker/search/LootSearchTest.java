@@ -17,6 +17,22 @@ import net.runelite.client.plugins.loottracker.LootTrackerPriceType;
 public class LootSearchTest
 {
 	@Test
+	public void gePricesAboveIntegerLimitPreserveTotalsAndOrdering()
+	{
+		LootItem expensive = new LootItem(1, "Expensive item", 2, 3_000_000_000L, 100);
+		LootItem ordinary = new LootItem(2, "Ordinary item", 1, 1_000, 200);
+		LootSource source = new LootSource("Boss", "NPC", 1, Arrays.asList(ordinary, expensive));
+		LootSearchResult result = LootSearch.search(Collections.singletonList(source), "", SearchMode.SOURCE).get(0);
+
+		assertEquals(3_000_000_000L, expensive.getGePrice());
+		assertEquals(6_000_000_000L, expensive.getTotalGeValue());
+		assertSame(expensive, result.getVisibleItems().get(0));
+		assertEquals(6_000_001_000L, source.getTotalValue(LootTrackerPriceType.GRAND_EXCHANGE));
+		assertEquals(6_000_001_000L, result.getTotalValue(LootTrackerPriceType.GRAND_EXCHANGE));
+		assertEquals(400L, result.getTotalValue(LootTrackerPriceType.HIGH_ALCHEMY));
+	}
+
+	@Test
 	public void allSourceFilterUsesConciseLabel()
 	{
 		assertEquals("All", SourceTypeFilter.ALL.toString());
