@@ -11,12 +11,12 @@ public final class LootItem
 	private final String name;
 	private final String normalizedName;
 	private final int quantity;
-	private final int gePrice;
+	private final long gePrice;
 	private final int haPrice;
 	private final long totalGeValue;
 	private final long totalHaValue;
 
-	public LootItem(int id, String name, int quantity, int gePrice, int haPrice)
+	public LootItem(int id, String name, int quantity, long gePrice, int haPrice)
 	{
 		this.id = id;
 		this.name = Objects.requireNonNull(name);
@@ -24,7 +24,7 @@ public final class LootItem
 		this.quantity = quantity;
 		this.gePrice = gePrice;
 		this.haPrice = haPrice;
-		this.totalGeValue = (long) gePrice * quantity;
+		this.totalGeValue = gePrice * quantity;
 		this.totalHaValue = (long) haPrice * quantity;
 	}
 
@@ -48,7 +48,7 @@ public final class LootItem
 		return quantity;
 	}
 
-	public int getGePrice()
+	public long getGePrice()
 	{
 		return gePrice;
 	}

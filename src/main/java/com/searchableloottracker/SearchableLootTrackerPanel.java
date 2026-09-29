@@ -1244,11 +1244,11 @@ final class SearchableLootTrackerPanel extends PluginPanel
 		return buildTooltip(item.getName(), item.getQuantity(), item.getGePrice(), item.getHaPrice(), wikiRates);
 	}
 
-	private static String buildTooltip(String name, long quantity, int gePrice, int haPrice,
+	private static String buildTooltip(String name, long quantity, long gePrice, int haPrice,
 		List<String> wikiRates)
 	{
 		long totalGe = quantity > 0 && gePrice > 0 && quantity > Long.MAX_VALUE / gePrice
-			? Long.MAX_VALUE : (long) gePrice * quantity;
+			? Long.MAX_VALUE : gePrice * quantity;
 		long totalHa = quantity > 0 && haPrice > 0 && quantity > Long.MAX_VALUE / haPrice
 			? Long.MAX_VALUE : (long) haPrice * quantity;
 		StringBuilder tooltip = new StringBuilder("<html>")
